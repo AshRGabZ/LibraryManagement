@@ -1,0 +1,101 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ghcc-library"
+version = "1.0.0"
+description = "GHCC Library Management — a Tkinter desktop application"
+readme = "README.md"
+requires-python = ">=3.9"
+authors = [
+    { name = "Asher Gabriel Jose", email = "asherranger@gmail.com" },
+]
+license = { text = "Proprietary" }
+keywords = ["library", "tkinter", "desktop", "sqlite"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Office/Business",
+]
+dependencies = []
+
+[project.optional-dependencies]
+# Without openpyxl the export feature gracefully falls back to CSV. Install
+# this extra to get real .xlsx output with styled headers.
+excel = [
+    "openpyxl>=3.0",
+]
+dev = [
+    "pytest>=7",
+    "pytest-cov",
+    "mypy",
+    "ruff",
+    "openpyxl>=3.0",
+]
+package = [
+    # Cross-platform desktop packaging. Briefcase produces .app/.msi/.deb builds.
+    "briefcase>=0.3",
+    "openpyxl>=3.0",
+]
+
+[project.scripts]
+ghcc-library = "library_app.__main__:main"
+
+[project.gui-scripts]
+"GHCC Library" = "library_app.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["library_app*"]
+
+# ---------------------------------------------------------------- briefcase --
+
+[tool.briefcase]
+project_name = "GHCC Library"
+bundle = "com.ghcc"
+version = "1.0.0"
+url = "https://example.com"
+license = "Proprietary"
+author = "GHCC Library"
+author_email = "asherranger@gmail.com"
+
+[tool.briefcase.app.ghcc_library]
+formal_name = "GHCC Library"
+description = "Library management for GHCC"
+sources = ["library_app"]
+icon = "resources/icon"
+
+[tool.briefcase.app.ghcc_library.macOS]
+requires = []
+
+[tool.briefcase.app.ghcc_library.windows]
+requires = []
+
+[tool.briefcase.app.ghcc_library.linux]
+requires = []
+
+# ---------------------------------------------------------------- tools -----
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501"]  # line length handled by formatter
+
+[tool.mypy]
+python_version = "3.9"
+strict_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
