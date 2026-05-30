@@ -8,7 +8,7 @@ from ...exceptions import LibraryError
 from ...services import Services
 from ..dialogs import BookDialog
 from ..theme import Palette, base_font, heading_font
-from ..widgets import FormDialog, TabHeader, build_treeview
+from ..widgets import FormDialog, ScrollableFrame, TabHeader, build_treeview
 from ._dashboard_view import DashboardView
 
 
@@ -59,16 +59,18 @@ class AdminTab(ttk.Frame):
         sub.bind("<<NotebookTabChanged>>", self._on_sub_tab_changed)
 
     def _build_books_management(self, parent: tk.Widget) -> None:
-        # Grid layout with explicit row weights — gives the Books section
-        # roughly 60% of vertical space and Categories/Languages 40%.
-        # Pack with `expand=True` on both was distributing space based on
-        # natural requested size, which pushed the bottom input rows below
-        # the visible window once the lists grew.
-        main = tk.Frame(parent, bg=Palette.BG, padx=8, pady=6)
+        # The three sections (Books + Categories + Languages) stacked together
+        # are taller than a short / not-maximized window. Sharing the space via
+        # grid row-weights made every list shrink — on a small Windows screen
+        # the treeviews collapsed to a single visible row. Instead, host the
+        # whole panel in a ScrollableFrame and give each list a generous FIXED
+        # height: nothing shrinks, and the outer scrollbar appears only when the
+        # panel doesn't fit. (Same approach as the Dashboard.)
+        scroller = ScrollableFrame(parent)
+        scroller.pack(fill="both", expand=True)
+        main = tk.Frame(scroller.body, bg=Palette.BG, padx=8, pady=6)
         main.pack(fill="both", expand=True)
         main.columnconfigure(0, weight=1)
-        main.rowconfigure(0, weight=3)  # Books gets 3 parts
-        main.rowconfigure(1, weight=2)  # Cats + Langs get 2 parts
 
         # Books section
         bf = tk.LabelFrame(main, text="📚 Books", bg=Palette.BG,
@@ -91,6 +93,8 @@ class AdminTab(ttk.Frame):
         ttk.Entry(sr, textvariable=self.book_search_var, width=32,
                   font=base_font()).pack(side="left")
 
+        # "extended" selection so several books can be selected (Ctrl/Shift-
+        # click) and deleted in one go.
         container, self.books_tree = build_treeview(bf, [
             ("id",       "ID",        60, "center"),
             ("title",    "Title",    175, "w"),
@@ -98,7 +102,7 @@ class AdminTab(ttk.Frame):
             ("category", "Category",  95, "w"),
             ("language", "Language",  95, "w"),
             ("copies",   "Copies",    80, "center"),
-        ], height=6)
+        ], height=12, selectmode="extended")
 
         # Action row pinned to the BOTTOM — packed before the tree so it is
         # always reserved and never clipped when the window is short. The
@@ -107,6 +111,8 @@ class AdminTab(ttk.Frame):
         btn_row.pack(side="bottom", fill="x", pady=(8, 0))
         ttk.Button(btn_row, text="➕ Add Book", style="Success.TButton",
                    command=self._add_book).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_row, text="📥 Import", style="Primary.TButton",
+                   command=self._import_books).pack(side="left", padx=4)
         ttk.Button(btn_row, text="✏ Edit", style="Primary.TButton",
                    command=self._edit_book).pack(side="left", padx=4)
         ttk.Button(btn_row, text="📦 Copies…", style="Neutral.TButton",
@@ -146,7 +152,7 @@ class AdminTab(ttk.Frame):
         container, self.cat_tree = build_treeview(cf, [
             ("id", "ID", 40, "center"),
             ("name", "Name", 150, "w"),
-        ], height=4)
+        ], height=8)
 
         # Input row reserved at the bottom (packed before the tree).
         ci = tk.Frame(cf, bg=Palette.BG)
@@ -180,7 +186,7 @@ class AdminTab(ttk.Frame):
         container, self.lang_tree = build_treeview(lf, [
             ("id", "ID", 40, "center"),
             ("name", "Name", 150, "w"),
-        ], height=4)
+        ], height=8)
 
         # Input row reserved at the bottom (packed before the tree).
         li = tk.Frame(lf, bg=Palette.BG)
@@ -257,8 +263,9 @@ class AdminTab(ttk.Frame):
 
     def _edit_book(self) -> None:
         sel = self.books_tree.selection()
-        if not sel:
-            messagebox.showinfo("Select a book", "Please select a book first.")
+        if len(sel) != 1:
+            messagebox.showinfo("Select one book",
+                                "Please select a single book to edit.")
             return
         book_id = int(self.books_tree.item(sel[0])["values"][0])
         book = self._services.books.get(book_id)
@@ -291,26 +298,66 @@ class AdminTab(ttk.Frame):
     def _delete_book(self) -> None:
         sel = self.books_tree.selection()
         if not sel:
-            messagebox.showinfo("Select a book", "Please select a book first.")
+            messagebox.showinfo("Select a book",
+                                "Please select one or more books first.")
             return
-        book_id = int(self.books_tree.item(sel[0])["values"][0])
-        book = self._services.books.get(book_id)
-        if book is None:
+
+        # (id, title) for each selected row.
+        books = [
+            (int(self.books_tree.item(s)["values"][0]),
+             str(self.books_tree.item(s)["values"][1]))
+            for s in sel
+        ]
+
+        if len(books) == 1:
+            prompt = f"Delete '{books[0][1]}'?"
+        else:
+            preview = "\n".join(f"  • {title}" for _, title in books[:10])
+            if len(books) > 10:
+                preview += f"\n  …and {len(books) - 10} more"
+            prompt = (f"Delete these {len(books)} books?\n\n{preview}\n\n"
+                      "This cannot be undone.")
+        if not messagebox.askyesno("Confirm delete", prompt):
             return
-        if not messagebox.askyesno("Confirm", f"Delete '{book.title}'?"):
-            return
-        try:
-            self._services.books.delete(book_id)
-            self.refresh()
-            self.on_change()
-        except LibraryError as e:
-            messagebox.showerror("Cannot delete", str(e))
+
+        # Delete each independently so one blocked book (active loans) doesn't
+        # abort the whole batch; collect failures and report them together.
+        deleted = 0
+        failures: list[tuple[str, str]] = []
+        for book_id, title in books:
+            try:
+                self._services.books.delete(book_id)
+                deleted += 1
+            except LibraryError as e:
+                failures.append((title, str(e)))
+
+        self.refresh()
+        self.on_change()
+
+        if failures:
+            lines: list[str] = []
+            if deleted:
+                lines.append(f"Deleted {deleted} book(s).")
+            lines.append(f"{len(failures)} could not be deleted:")
+            lines.extend(f"  • {title}: {msg}" for title, msg in failures[:10])
+            if len(failures) > 10:
+                lines.append(f"  …and {len(failures) - 10} more.")
+            messagebox.showwarning("Some books not deleted", "\n".join(lines))
+
+    def _import_books(self) -> None:
+        """Open the bulk-import dialog (Excel/CSV → books)."""
+        from ..dialogs import ImportBooksDialog
+        ImportBooksDialog(
+            self.winfo_toplevel(), self._services,
+            on_success=lambda: (self.refresh(), self.on_change()),
+        )
 
     def _manage_copies(self) -> None:
         """Open the per-copy serial editor for the selected book."""
         sel = self.books_tree.selection()
-        if not sel:
-            messagebox.showinfo("Select a book", "Please select a book first.")
+        if len(sel) != 1:
+            messagebox.showinfo("Select one book",
+                                "Please select a single book to manage copies.")
             return
         book_id = int(self.books_tree.item(sel[0])["values"][0])
         from ..dialogs import ManageCopiesDialog

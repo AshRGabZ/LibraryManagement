@@ -9,6 +9,7 @@ from .book_service import BookService
 from .category_service import CategoryService
 from .container import Services
 from .export_service import ExportService
+from .import_service import ImportResult, ImportService, ParsedRow
 from .label_service import LabelService
 from .language_service import LanguageService
 from .loan_service import LoanService
@@ -20,11 +21,14 @@ __all__ = [
     "BookService",
     "CategoryService",
     "ExportService",
+    "ImportResult",
+    "ImportService",
     "LabelService",
     "LanguageService",
     "LoanService",
     "MemberService",
     "NotificationService",
+    "ParsedRow",
     "Services",
     "StatsService",
 ]

@@ -6,6 +6,7 @@ from tkinter import messagebox, simpledialog, ttk
 from ...services import Services
 from ..theme import Palette, base_font, heading_font, small_font
 from ..ui_helpers import center_window, make_divider
+from ..widgets import SearchableDropdown
 
 
 class BookDialog(tk.Toplevel):
@@ -167,9 +168,9 @@ class BookDialog(tk.Toplevel):
         cat_frame = tk.Frame(body, bg=Palette.SURFACE)
         cat_frame.grid(row=row, column=0, sticky="ew")
         self.category_var = tk.StringVar()
-        self.category_combo = ttk.Combobox(
+        self.category_combo = SearchableDropdown(
             cat_frame, textvariable=self.category_var, width=32,
-            state="readonly", font=base_font(),
+            font=base_font(),
         )
         self._refresh_categories()
         if initial.get("category_id"):
@@ -189,9 +190,9 @@ class BookDialog(tk.Toplevel):
         lang_frame = tk.Frame(body, bg=Palette.SURFACE)
         lang_frame.grid(row=row, column=0, sticky="ew")
         self.language_var = tk.StringVar()
-        self.language_combo = ttk.Combobox(
+        self.language_combo = SearchableDropdown(
             lang_frame, textvariable=self.language_var, width=32,
-            state="readonly", font=base_font(),
+            font=base_font(),
         )
         self._refresh_languages()
         if initial.get("language_id"):
@@ -247,12 +248,14 @@ class BookDialog(tk.Toplevel):
     # ── Helpers ────────────────────────────────────────────────────────────────
 
     def _refresh_categories(self) -> None:
+        # SearchableDropdown offers a "— None —" row itself; an empty field
+        # (or picking None) resolves to no category.
         names = [c.name for c in self._services.categories.list_all()]
-        self.category_combo["values"] = [""] + names
+        self.category_combo.set_completion_list(names)
 
     def _refresh_languages(self) -> None:
         names = [l.name for l in self._services.languages.list_all()]
-        self.language_combo["values"] = [""] + names
+        self.language_combo.set_completion_list(names)
 
     def _new_category(self) -> None:
         name = simpledialog.askstring("New Category", "Category name:",
@@ -279,10 +282,13 @@ class BookDialog(tk.Toplevel):
             messagebox.showerror("Error", str(e), parent=self)
 
     def _resolve_id(self, name: str, items) -> int | None:
+        # Case-insensitive: the field is now editable, so a typed "history"
+        # should still resolve to the stored "History".
         if not name:
             return None
+        low = name.strip().lower()
         for item in items:
-            if item.name == name:
+            if item.name.lower() == low:
                 return item.id
         return None
 

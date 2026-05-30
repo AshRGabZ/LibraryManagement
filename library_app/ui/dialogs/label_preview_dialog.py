@@ -14,6 +14,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from ...services import Services
 from ..theme import Palette, base_font, heading_font
+from ..ui_helpers import center_window
 
 
 _log = logging.getLogger(__name__)
@@ -60,12 +61,11 @@ class LabelPreviewDialog(tk.Toplevel):
 
         self._build_ui()
 
-        self.geometry("760x540")
         self.minsize(620, 480)
-        self.update_idletasks()
-        x = parent.winfo_rootx() + (parent.winfo_width() - 760) // 2
-        y = parent.winfo_rooty() + (parent.winfo_height() - 540) // 2
-        self.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+        # Route through center_window so the dialog is clamped to the screen,
+        # keeping the Download/Close footer on-screen on small/scaled displays
+        # (same fix as the Borrow dialog footer).
+        center_window(self, parent, width=760, height=540)
         self.bind("<Escape>", lambda e: self.destroy())
         self.wait_window(self)
 

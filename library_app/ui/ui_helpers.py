@@ -89,17 +89,47 @@ def status_chip(
     )
 
 
+#: Reserved screen margins (px) so a dialog never butts against the OS
+#: taskbar / window chrome. Height margin is larger because that's where the
+#: Windows taskbar lives and where footer action bars would otherwise hide.
+_SCREEN_MARGIN_W = 40
+_SCREEN_MARGIN_H = 96
+
+
 def center_window(
     window: tk.Toplevel,
     parent: tk.Widget,
     width: int,
     height: int,
 ) -> None:
-    """Center `window` over `parent`."""
+    """Center `window` over `parent`, clamped to fit the physical screen.
+
+    Dialogs declare an *ideal* width/height, but on small or display-scaled
+    monitors (e.g. a 1366×768 laptop at 125 % scaling) a tall dialog would
+    extend below the taskbar and hide its footer buttons — exactly the
+    "can't see Borrow / Cancel" symptom. We therefore cap the requested size
+    to the available screen area and re-clamp the position so the *entire*
+    window, crucially its bottom action bar, stays on-screen. When the ideal
+    size already fits, behaviour is unchanged (a plain centred window).
+    """
     window.update_idletasks()
+
+    screen_w = window.winfo_screenwidth()
+    screen_h = window.winfo_screenheight()
+
+    # Never let a dialog be taller/wider than the usable screen.
+    width = min(width, screen_w - _SCREEN_MARGIN_W)
+    height = min(height, screen_h - _SCREEN_MARGIN_H)
+
+    # Centre over the parent…
     x = parent.winfo_rootx() + (parent.winfo_width() - width) // 2
     y = parent.winfo_rooty() + (parent.winfo_height() - height) // 2
-    window.geometry(f"{width}x{height}+{max(x, 0)}+{max(y, 0)}")
+
+    # …then clamp so neither edge spills off-screen (keeps the footer visible).
+    x = max(0, min(x, screen_w - width - _SCREEN_MARGIN_W // 2))
+    y = max(0, min(y, screen_h - height - _SCREEN_MARGIN_H // 2))
+
+    window.geometry(f"{width}x{height}+{x}+{y}")
 
 
 def dialog_chrome(

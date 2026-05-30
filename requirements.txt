@@ -1,0 +1,25 @@
+# Runtime dependencies for GHCC Library Management.
+#
+# The core app runs on the Python standard library alone (tkinter, sqlite3,
+# csv, urllib, webbrowser, …). The two packages below unlock optional features
+# and are recommended for the full experience — without them the app still
+# runs and degrades gracefully:
+#
+#   • openpyxl  → Excel (.xlsx) export with styled headers + a "Copies" sheet.
+#                 Absent: the Books-tab export falls back to CSV.
+#   • Pillow    → book-label preview & download (PNG / PDF / JPG).
+#                 Absent: the Label dialog shows an "install Pillow" message;
+#                 every other feature is unaffected.
+#
+# Version bounds mirror pyproject.toml (the single source of truth). To pin to
+# the exact versions currently in use instead, replace with:
+#     openpyxl==3.1.5
+#     Pillow==12.0.0
+#
+# Install:  pip install -r requirements.txt
+#
+# Note: tkinter ships with CPython but on some Linux distros it is a separate
+# OS package (e.g. `sudo apt install python3-tk`) and is NOT pip-installable.
+
+openpyxl>=3.0
+Pillow>=9.0

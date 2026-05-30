@@ -74,8 +74,11 @@ class LibraryApp(tk.Tk):
     def _tick_clock(self) -> None:
         try:
             now = datetime.now()
+            # Emoji kept out of strftime — see note in tab_header._update_clock:
+            # Windows' strftime locale codec can't encode emoji.
             self._clock_label.configure(
-                text=now.strftime("  🕐  %H:%M:%S  •  %d %b %Y  ")
+                text="  🕐  " + now.strftime("%H:%M:%S") + "  •  "
+                     + now.strftime("%d %b %Y") + "  "
             )
             self.after(1000, self._tick_clock)
         except tk.TclError:

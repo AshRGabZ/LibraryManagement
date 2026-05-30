@@ -61,11 +61,15 @@ class TabHeader(ttk.Frame):
     def _update_clock(self) -> None:
         """Update the date and time labels every second."""
         now = datetime.now()
+        # IMPORTANT: keep emoji OUT of the strftime format string. On Windows,
+        # datetime.strftime routes the format through the C runtime's locale
+        # codec (often cp1252), which can't encode emoji and raises
+        # UnicodeEncodeError. Concatenating in Python avoids that codec path.
         self._date_label.configure(
-            text=now.strftime("  📅  %A, %d %B %Y  ")
+            text="  📅  " + now.strftime("%A, %d %B %Y") + "  "
         )
         self._time_label.configure(
-            text=now.strftime("  🕐  %H:%M:%S  ")
+            text="  🕐  " + now.strftime("%H:%M:%S") + "  "
         )
         # Schedule next tick; cancel-safe: if the widget is destroyed
         # the after callback will fire but configure will silently fail.

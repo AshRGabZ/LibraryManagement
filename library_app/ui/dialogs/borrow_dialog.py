@@ -10,7 +10,7 @@ from ...exceptions import LibraryError
 from ...services import Services
 from ..theme import Palette, base_font, heading_font, small_font
 from ..ui_helpers import center_window, make_divider
-from ..widgets import DateEntry, SearchablePicker
+from ..widgets import DateEntry, ScrollableFrame, SearchablePicker
 
 
 class BorrowDialog(tk.Toplevel):
@@ -69,8 +69,16 @@ class BorrowDialog(tk.Toplevel):
         self._summary_label.pack(fill="x")
         self._update_summary()
 
-        # ── Body ─────────────────────────────────────────────────────────────
-        body = tk.Frame(self, bg=Palette.SURFACE, padx=22, pady=16)
+        # ── Body (scrollable) ────────────────────────────────────────────────
+        # Outer scrollbar so the whole form (filters → pickers → loan period)
+        # stays reachable when the window is clamped short on a small/scaled
+        # screen — the pickers keep their full height instead of shrinking.
+        # Trade-off: while the pointer is over one of the list pickers the wheel
+        # scrolls that list; use the scrollbar (or click into empty form space)
+        # to scroll the outer area.
+        scroller = ScrollableFrame(self, bg=Palette.SURFACE)
+        scroller.pack(fill="both", expand=True)
+        body = tk.Frame(scroller.body, bg=Palette.SURFACE, padx=22, pady=16)
         body.pack(fill="both", expand=True)
         body.columnconfigure(0, weight=1)
 
@@ -193,7 +201,10 @@ class BorrowDialog(tk.Toplevel):
         tk.Label(period_row, text="days", bg=Palette.SURFACE,
                  fg=Palette.MUTED, font=base_font()).pack(side="left")
 
-        center_window(self, parent, width=700, height=740)
+        # Height matches the natural content height (~640px). center_window
+        # additionally clamps this to the screen, so on a small/scaled laptop
+        # display the footer (Borrow / Cancel) is guaranteed to stay visible.
+        center_window(self, parent, width=700, height=660)
         self.bind("<Escape>", lambda e: self.destroy())
 
     # ── Helpers ────────────────────────────────────────────────────────────

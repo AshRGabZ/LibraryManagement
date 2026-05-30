@@ -102,7 +102,39 @@ class ScrollableFrame(ttk.Frame):
         self._canvas.unbind_all("<Button-4>")
         self._canvas.unbind_all("<Button-5>")
 
+    #: Inner widget classes that scroll themselves on the wheel. When the
+    #: pointer is over one of these, it must keep the wheel — the outer panel
+    #: should NOT also scroll (otherwise a treeview/listbox inside the panel
+    #: drags the whole panel along).
+    _INNER_SCROLLERS = ("Treeview", "Listbox", "Text")
+
+    def _should_handle(self, widget: tk.Misc | None) -> bool:
+        """Whether a (global) wheel event belongs to this panel.
+
+        Walk from the event's widget up to this ScrollableFrame and bail if:
+          • we never reach it — the event is over another window (e.g. a modal
+            dialog on top), so it isn't ours; or
+          • we first pass through an inner widget that scrolls itself
+            (treeview / listbox / text) — let that widget keep the wheel.
+        """
+        node = widget
+        while node is not None:
+            if node is self:
+                return True
+            try:
+                if node.winfo_class() in self._INNER_SCROLLERS:
+                    return False
+            except tk.TclError:
+                return False
+            node = getattr(node, "master", None)
+        return False
+
     def _on_wheel(self, event: tk.Event) -> None:
+        # The wheel binding is global (bind_all); only act when this event is
+        # genuinely ours (see _should_handle for the dialog / inner-scroller
+        # exclusions).
+        if not self._should_handle(getattr(event, "widget", None)):
+            return
         # Don't scroll if everything already fits.
         first, last = self._canvas.yview()
         if first <= 0.0 and last >= 1.0:
@@ -119,3 +151,16 @@ class ScrollableFrame(ttk.Frame):
             else:
                 delta = -1 if raw > 0 else 1
         self._canvas.yview_scroll(delta, "units")
+
+    # ------------------------------------------------------------- lifecycle #
+
+    def destroy(self) -> None:  # type: ignore[override]
+        # The wheel handlers are bound globally via bind_all while hovered.
+        # In a transient dialog the widget may be destroyed (e.g. Escape) while
+        # still bound; drop the global bindings first so a later wheel event
+        # can't fire on this now-dead canvas.
+        try:
+            self._unbind_wheel(None)  # type: ignore[arg-type]
+        except tk.TclError:
+            pass
+        super().destroy()

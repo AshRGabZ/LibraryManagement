@@ -12,6 +12,7 @@ from ..data import Database
 from .book_service import BookService
 from .category_service import CategoryService
 from .export_service import ExportService
+from .import_service import ImportService
 from .language_service import LanguageService
 from .loan_service import LoanService
 from .member_service import MemberService
@@ -31,18 +32,25 @@ class Services:
     notify: NotificationService
     label: LabelService
     export: type[ExportService]  # stateless — pass the class itself
+    importer: ImportService
 
     @classmethod
     def build(cls, db: Database) -> "Services":
         """Wire up all services with a single database instance."""
+        books = BookService(db)
+        categories = CategoryService(db)
+        languages = LanguageService(db)
         return cls(
-            books=BookService(db),
+            books=books,
             members=MemberService(db),
             loans=LoanService(db),
-            categories=CategoryService(db),
-            languages=LanguageService(db),
+            categories=categories,
+            languages=languages,
             stats=StatsService(db),
             notify=NotificationService(),
             label=LabelService(),
             export=ExportService,
+            # The importer composes the book/category/language services so it
+            # can resolve-or-create names and insert through the same rules.
+            importer=ImportService(books, categories, languages),
         )

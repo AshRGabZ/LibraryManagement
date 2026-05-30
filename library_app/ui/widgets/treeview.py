@@ -14,6 +14,7 @@ def build_treeview(
     parent: tk.Widget,
     columns_spec: Sequence[ColumnSpec],
     height: int | None = None,
+    selectmode: str = "browse",
 ) -> tuple[ttk.Frame, ttk.Treeview]:
     """Construct a styled Treeview with a scrollbar.
 
@@ -23,11 +24,15 @@ def build_treeview(
     `height` is the number of visible rows. Set this when the tree shares
     vertical space with other widgets (e.g., a search bar + input row in a
     LabelFrame) — otherwise the default ~10 rows can push siblings off-screen.
+
+    `selectmode` defaults to "browse" (one row at a time). Pass "extended" to
+    allow multi-row selection (Ctrl/Cmd-click, Shift-click) — e.g. for bulk
+    actions like delete.
     """
     container = ttk.Frame(parent, style="Surface.TFrame")
     keys = [c[0] for c in columns_spec]
 
-    tree_kwargs = {"columns": keys, "show": "headings", "selectmode": "browse"}
+    tree_kwargs = {"columns": keys, "show": "headings", "selectmode": selectmode}
     if height is not None:
         tree_kwargs["height"] = height
     tree = ttk.Treeview(container, **tree_kwargs)
