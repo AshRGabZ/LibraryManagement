@@ -67,15 +67,11 @@ class MemberService:
         phone = _normalize_phone(phone)
         try:
             with self._db.transaction() as conn:
-                return MemberRepository(conn).add(
-                    name, email or None, phone
-                )
+                repo = MemberRepository(conn)
+                self._reject_if_duplicate(repo, name, phone, exclude_id=None)
+                return repo.add(name, email or None, phone)
         except sqlite3.IntegrityError as e:
-            if "email" in str(e).lower():
-                raise ValidationError(
-                    f"A member with email '{email}' already exists."
-                )
-            raise
+            self._translate_integrity_error(e, email, name, phone)
 
     def update(
         self,
@@ -90,15 +86,60 @@ class MemberService:
         phone = _normalize_phone(phone)
         try:
             with self._db.transaction() as conn:
-                MemberRepository(conn).update(
-                    member_id, name, email or None, phone
-                )
+                repo = MemberRepository(conn)
+                self._reject_if_duplicate(repo, name, phone, exclude_id=member_id)
+                repo.update(member_id, name, email or None, phone)
         except sqlite3.IntegrityError as e:
-            if "email" in str(e).lower():
-                raise ValidationError(
-                    f"A member with email '{email}' already exists."
-                )
-            raise
+            self._translate_integrity_error(e, email, name, phone)
+
+    # ------------------------------------------------------------ guards #
+
+    @staticmethod
+    def _reject_if_duplicate(
+        repo: MemberRepository,
+        name: str,
+        phone: str | None,
+        *,
+        exclude_id: int | None,
+    ) -> None:
+        """Block two members from sharing the same (name, phone) pair.
+
+        Phone NULL is exempt — multiple members named "Alice" with no phone
+        on file are still allowed (matches SQL NULL semantics in the unique
+        index). The block only fires when both name AND a real phone match.
+        """
+        if phone is None:
+            return
+        existing = repo.find_by_name_and_phone(name, phone, exclude_id=exclude_id)
+        if existing is not None:
+            raise ValidationError(
+                f"A member named '{name}' with phone {phone} already exists "
+                f"(ID {existing.id})."
+            )
+
+    @staticmethod
+    def _translate_integrity_error(
+        e: sqlite3.IntegrityError,
+        email: str | None,
+        name: str,
+        phone: str | None,
+    ) -> None:
+        """Convert raw SQLite errors into actionable ValidationErrors.
+
+        Defense in depth: even if the pre-check above is bypassed (race in a
+        future multi-user version), the UNIQUE INDEX on (name, phone) will
+        still fire and we re-translate the message here.
+        """
+        msg = str(e).lower()
+        if "email" in msg:
+            raise ValidationError(
+                f"A member with email '{email}' already exists."
+            )
+        if "idx_members_name_phone" in msg or ("name" in msg and "phone" in msg):
+            raise ValidationError(
+                f"A member named '{name}' with phone {phone} already exists."
+            )
+        raise e
 
     def delete(self, member_id: int) -> None:
         with self._db.transaction() as conn:

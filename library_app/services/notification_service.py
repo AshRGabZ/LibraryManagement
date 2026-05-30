@@ -59,7 +59,13 @@ class NotificationService:
                         suffix = f" — due in {ln.days_left} day{'s' if ln.days_left != 1 else ''}"
                 else:
                     suffix = ""
-                lines.append(f"• {ln.book_title} (due {ln.due_on or '—'}){suffix}")
+                # Include the specific copy's serial when available — helps
+                # the member find the right book on their shelf when several
+                # copies were borrowed.
+                title = ln.book_title
+                if ln.serial_number:
+                    title = f"{title} [{ln.serial_number}]"
+                lines.append(f"• {title} (due {ln.due_on or '—'}){suffix}")
             book_list = "\n".join(lines)
         else:
             book_list = "(no active loans)"

@@ -15,11 +15,12 @@ class LoanRepository:
         member_id: int,
         borrowed_on: str,
         due_on: str,
+        copy_id: int | None = None,
     ) -> int:
         cur = self._conn.execute(
-            """INSERT INTO loans (book_id, member_id, borrowed_on, due_on)
-               VALUES (?, ?, ?, ?)""",
-            (book_id, member_id, borrowed_on, due_on),
+            """INSERT INTO loans (book_id, member_id, borrowed_on, due_on, copy_id)
+               VALUES (?, ?, ?, ?, ?)""",
+            (book_id, member_id, borrowed_on, due_on, copy_id),
         )
         return cur.lastrowid
 
@@ -45,11 +46,13 @@ class LoanRepository:
     def get_with_details(self, loan_id: int) -> LoanWithDetails | None:
         row = self._conn.execute(
             """SELECT loans.*,
-                      books.title  AS book_title,
-                      members.name AS member_name
+                      books.title         AS book_title,
+                      members.name        AS member_name,
+                      book_copies.serial_number AS serial_number
                FROM loans
                JOIN books   ON books.id   = loans.book_id
                JOIN members ON members.id = loans.member_id
+               LEFT JOIN book_copies ON book_copies.id = loans.copy_id
                WHERE loans.id=?""",
             (loan_id,),
         ).fetchone()
@@ -65,21 +68,30 @@ class LoanRepository:
         """List loans, optionally filtered.
 
         `from_date` and `to_date` are inclusive ISO date strings filtering by
-        `borrowed_on` — i.e. "loans started between these dates".
+        `borrowed_on` — i.e. "loans started between these dates". Includes
+        the copy's serial_number via a LEFT JOIN — legacy loans without a
+        linked copy come back with NULL there.
         """
         sql = """SELECT loans.*,
-                        books.title  AS book_title,
-                        members.name AS member_name
+                        books.title         AS book_title,
+                        members.name        AS member_name,
+                        book_copies.serial_number AS serial_number
                  FROM loans
                  JOIN books   ON books.id   = loans.book_id
-                 JOIN members ON members.id = loans.member_id"""
+                 JOIN members ON members.id = loans.member_id
+                 LEFT JOIN book_copies ON book_copies.id = loans.copy_id"""
         clauses, params = [], []
         if active_only:
             clauses.append("loans.returned_on IS NULL")
         if search:
             like = f"%{search}%"
-            clauses.append("(books.title LIKE ? OR members.name LIKE ?)")
-            params.extend([like, like])
+            # Include serial number in the search predicate — librarians
+            # often look up a loan by reading the label on a returned book.
+            clauses.append(
+                "(books.title LIKE ? OR members.name LIKE ? "
+                "OR book_copies.serial_number LIKE ?)"
+            )
+            params.extend([like, like, like])
         if from_date:
             clauses.append("loans.borrowed_on >= ?")
             params.append(from_date)

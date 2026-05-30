@@ -10,7 +10,7 @@ from ...domain import LoanWithDetails
 from ...exceptions import LibraryError
 from ...services import Services
 from ..dialogs import BorrowDialog, RenewDialog
-from ..theme import Palette, base_font
+from ..theme import Palette, base_font, heading_font, small_font
 from ..widgets import DateEntry, TabHeader, TreeviewSorter, build_treeview
 
 
@@ -25,26 +25,21 @@ class LoansTab(ttk.Frame):
     Alice's loans". The hierarchical tree gives a one-row-per-person summary
     with their loans nested underneath, and lets us put a single "💬 Notify"
     button per member in the toolbar.
-
-    The composite identity (name, phone) lives in the `Member` row — selecting
-    any loan resolves up to its parent member via `tree.parent()`.
     """
 
-    # Columns visible for every row. Tree column (#0) shows "Member / Book".
-    # Parent rows fill: phone + summary fields. Child rows fill: loan fields.
     COLUMNS = [
-        ("phone", "Phone", 130, "w"),
+        ("phone",    "Phone",    130, "w"),
+        ("serial",   "Serial #", 100, "center"),
         ("borrowed", "Borrowed", 100, "center"),
-        ("due", "Due", 100, "center"),
-        ("days_left", "Days Left", 110, "center"),
+        ("due",      "Due",      100, "center"),
+        ("days_left","Days Left",110, "center"),
         ("returned", "Returned", 100, "center"),
-        ("renewals", "Renewals", 80, "center"),
-        ("status", "Status", 130, "center"),
+        ("renewals", "Renewals",  80, "center"),
+        ("status",   "Status",   130, "center"),
     ]
 
-    # iid prefixes — keep types straight when reading back tree.selection().
     _MEMBER_PREFIX = "m:"
-    _LOAN_PREFIX = "l:"
+    _LOAN_PREFIX   = "l:"
 
     def __init__(
         self,
@@ -58,97 +53,123 @@ class LoansTab(ttk.Frame):
         self._build_ui()
         self.refresh()
 
-    # ----------------------------------------------------------------- UI #
+    # ─────────────────────────────────────────── UI construction ──
 
     def _build_ui(self) -> None:
         TabHeader(self, "🔄", "Loans",
                   "Borrow, renew and return books — grouped by member"
                   ).pack(fill="x")
 
-        # --- Row 1: search + active-only + action buttons ----------------
+        # ── Row 1: search + active-only + action buttons ─────────────────────
         toolbar = tk.Frame(self, bg=Palette.BG, pady=10, padx=14)
         toolbar.pack(fill="x")
 
-        tk.Label(toolbar, text="🔎", bg=Palette.BG, fg=Palette.TEXT,
-                 font=(base_font()[0], base_font()[1] + 2)
-                 ).pack(side="left", padx=(0, 4))
+        # Search pill
+        search_pill = tk.Frame(toolbar, bg=Palette.BORDER)
+        search_pill.pack(side="left")
+        tk.Label(search_pill, text=" 🔎 ", bg=Palette.SURFACE,
+                 fg=Palette.MUTED, font=base_font()
+                 ).pack(side="left")
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *_: self.refresh())
-        ttk.Entry(toolbar, textvariable=self.search_var, width=28,
-                  font=base_font()).pack(side="left")
+        search_entry = tk.Entry(
+            search_pill, textvariable=self.search_var, width=26,
+            font=base_font(), relief="flat", bd=0,
+            bg=Palette.SURFACE, fg=Palette.TEXT,
+            insertbackground=Palette.PRIMARY,
+        )
+        search_entry.pack(side="left", ipady=7, ipadx=8, pady=1)
+        search_entry.bind("<FocusIn>",
+                          lambda e: search_pill.configure(bg=Palette.BORDER_FOCUS))
+        search_entry.bind("<FocusOut>",
+                          lambda e: search_pill.configure(bg=Palette.BORDER))
 
         self.active_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(toolbar, text="Active only", variable=self.active_var,
                         command=self.refresh).pack(side="left", padx=12)
 
-        # Action buttons — order matters (right-most packs first visually).
-        ttk.Button(toolbar, text="📖 Borrow", style="Success.TButton",
+        # Action buttons (right → left order so last-packed = right-most)
+        ttk.Button(toolbar, text="📖  Borrow", style="Success.TButton",
                    command=self.borrow_book).pack(side="right", padx=4)
-        ttk.Button(toolbar, text="🔁 Renew", style="Purple.TButton",
+        ttk.Button(toolbar, text="🔁  Renew", style="Purple.TButton",
                    command=self.renew_loan).pack(side="right", padx=4)
-        ttk.Button(toolbar, text="↩ Return", style="Primary.TButton",
+        ttk.Button(toolbar, text="↩  Return", style="Primary.TButton",
                    command=self.return_book).pack(side="right", padx=4)
-        # Always-active WhatsApp Notify — acts on the selected member (or
-        # the member of the selected loan). No condition on overdue status.
-        ttk.Button(toolbar, text="💬 WhatsApp", style="Whatsapp.TButton",
+        ttk.Button(toolbar, text="💬  WhatsApp", style="Whatsapp.TButton",
                    command=self.notify_whatsapp).pack(side="right", padx=4)
-        ttk.Button(toolbar, text="↻ Refresh", style="Neutral.TButton",
+        ttk.Button(toolbar, text="↻  Refresh", style="Neutral.TButton",
                    command=self.refresh).pack(side="right", padx=4)
 
-        # --- Row 2: date-range filter + result count ---------------------
+        # ── Row 2: date-range filter + result count ───────────────────────────
         range_bar = tk.Frame(self, bg=Palette.BG, padx=14)
         range_bar.pack(fill="x", pady=(0, 6))
 
-        tk.Label(range_bar, text="📅 Borrowed between:", bg=Palette.BG,
-                 fg=Palette.TEXT, font=base_font()
-                 ).pack(side="left", padx=(0, 6))
+        filter_card = tk.Frame(range_bar, bg=Palette.CARD_BG,
+                               highlightthickness=1,
+                               highlightbackground=Palette.BORDER)
+        filter_card.pack(side="left", fill="y")
+        filter_inner = tk.Frame(filter_card, bg=Palette.CARD_BG, padx=12, pady=6)
+        filter_inner.pack()
 
-        self.from_date = DateEntry(range_bar, initial=None, width=11,
+        tk.Label(filter_inner, text="📅  Borrowed between:", bg=Palette.CARD_BG,
+                 fg=Palette.MUTED, font=small_font()
+                 ).pack(side="left", padx=(0, 6))
+        self.from_date = DateEntry(filter_inner, initial=None, width=11,
                                    on_change=self._on_range_change)
         self.from_date.pack(side="left")
-
-        tk.Label(range_bar, text=" and ", bg=Palette.BG, fg=Palette.MUTED,
-                 font=base_font()).pack(side="left")
-
-        self.to_date = DateEntry(range_bar, initial=None, width=11,
+        tk.Label(filter_inner, text="  and ", bg=Palette.CARD_BG,
+                 fg=Palette.MUTED, font=base_font()).pack(side="left")
+        self.to_date = DateEntry(filter_inner, initial=None, width=11,
                                  on_change=self._on_range_change)
         self.to_date.pack(side="left")
-
-        ttk.Button(range_bar, text="Clear", style="Neutral.TButton",
-                   command=self._clear_range).pack(side="left", padx=8)
+        ttk.Button(filter_inner, text="✕  Clear", style="Neutral.TButton",
+                   command=self._clear_range).pack(side="left", padx=(8, 0))
 
         self.count_var = tk.StringVar(value="")
         tk.Label(range_bar, textvariable=self.count_var, bg=Palette.BG,
-                 fg=Palette.MUTED, font=base_font()
+                 fg=Palette.MUTED, font=small_font()
                  ).pack(side="left", padx=(12, 0))
 
-        # --- Hierarchical Treeview -------------------------------------- #
+        # Expand/collapse toggle — far right of this row, directly above the
+        # table. Loans default to expanded, so it starts on "Collapse All".
+        self._all_expanded = True
+        self._expand_btn = ttk.Button(
+            range_bar, text="⤡  Collapse All", style="Neutral.TButton",
+            command=self._toggle_expand)
+        self._expand_btn.pack(side="right")
+
+        # ── Treeview ─────────────────────────────────────────────────────────
         container, self.tree = build_treeview(self, self.COLUMNS)
         container.pack(fill="both", expand=True, padx=14, pady=(0, 14))
 
-        # Switch to tree+headings so the leftmost column shows expand arrows
-        # and we can put member/book names there.
         self.tree.configure(show="tree headings")
         self.tree.heading("#0", text="Member / Book")
         self.tree.column("#0", width=300, anchor="w", stretch=True)
 
-        # Member rows get bold-ish look via a tag — distinguishes them
-        # visually from child loan rows even when collapsed.
         self.tree.tag_configure(
-            "member", background=Palette.ROW_ALT, foreground=Palette.TEXT,
-        )
+            "member", background=Palette.ROW_ALT, foreground=Palette.TEXT)
         self.tree.tag_configure(
-            "member_overdue", background="#fee2e2", foreground=Palette.DANGER,
-        )
+            "member_overdue", background="#fee2e2", foreground=Palette.DANGER)
 
-        # Click-to-sort. Sorting "Due" keeps members in their current order
-        # (their Due column is blank → all tied → stable sort preserves order)
-        # but reorders each member's loans by due date — the most useful
-        # default when triaging overdue accounts.
         self._sorter = TreeviewSorter(self.tree)
         self._sorter.sort_by("due")
 
-    # ---------------------------------------------------- helpers (read) #
+    # ─────────────────────────────────────────── expand/collapse ──
+
+    def _toggle_expand(self) -> None:
+        """Flip every member group open/closed and update the button label."""
+        self._all_expanded = not self._all_expanded
+        self._apply_expand_state()
+
+    def _apply_expand_state(self) -> None:
+        """Open/close all member groups to match `_all_expanded`, sync label."""
+        for iid in self.tree.get_children(""):
+            self.tree.item(iid, open=self._all_expanded)
+        self._expand_btn.configure(
+            text="⤡  Collapse All" if self._all_expanded else "⤢  Expand All"
+        )
+
+    # ─────────────────────────────────────────── helpers ──
 
     @staticmethod
     def _format_days_left(loan: LoanWithDetails) -> str:
@@ -169,7 +190,7 @@ class LoansTab(ttk.Frame):
         self.from_date.clear()
         self.to_date.clear()
 
-    # -------------------------------------------------------- refresh   #
+    # ─────────────────────────────────────────── refresh ──
 
     def refresh(self) -> None:
         for r in self.tree.get_children():
@@ -182,9 +203,6 @@ class LoansTab(ttk.Frame):
             to_date=self.to_date.get_date(),
         )
 
-        # Group preserving the SQL-sorted order (most-urgent first).
-        # The composite identity is the member_id from the loan's join —
-        # name + phone are display projections of that single key.
         by_member: dict[int, list[LoanWithDetails]] = {}
         order: list[int] = []
         for ln in loans:
@@ -197,21 +215,16 @@ class LoansTab(ttk.Frame):
         for member_id in order:
             self._insert_member_group(member_id, by_member[member_id], max_r)
 
-        # Preserve the user's chosen sort across data refreshes.
         self._sorter.resort()
 
         n = len(loans)
         n_members = len(by_member)
-        if self.from_date.get_date() or self.to_date.get_date():
-            self.count_var.set(
-                f"●  {n} loan{'s' if n != 1 else ''} across "
-                f"{n_members} member{'s' if n_members != 1 else ''} in range"
-            )
-        else:
-            self.count_var.set(
-                f"●  {n} loan{'s' if n != 1 else ''} across "
-                f"{n_members} member{'s' if n_members != 1 else ''}"
-            )
+        suffix = "  in date range" if (self.from_date.get_date() or
+                                        self.to_date.get_date()) else ""
+        self.count_var.set(
+            f"  ●  {n} loan{'s' if n != 1 else ''}  across  "
+            f"{n_members} member{'s' if n_members != 1 else ''}{suffix}"
+        )
 
     def _insert_member_group(
         self,
@@ -220,54 +233,49 @@ class LoansTab(ttk.Frame):
         max_r: int,
     ) -> None:
         member = self._services.members.get(member_id)
-        # Member name comes from the join; fallback handles a race where the
-        # member was deleted between the join and this row read.
         name = member.name if member else loans[0].member_name
         phone = member.phone if member else "—"
 
         active = [ln for ln in loans if not ln.is_returned]
         overdue = [ln for ln in active if ln.is_overdue]
 
-        # Summary string for the Status column on the parent row.
         if not active:
-            summary = f"{len(loans)} returned"
+            summary = f"✓  {len(loans)} returned"
         elif overdue:
-            summary = (
-                f"⚠ {len(overdue)} overdue · "
-                f"{len(active)} active"
-            )
+            summary = f"⚠  {len(overdue)} overdue  ·  {len(active)} active"
         else:
-            summary = f"● {len(active)} active"
+            summary = f"●  {len(active)} active"
 
         parent_tag = "member_overdue" if overdue else "member"
         parent_iid = self._MEMBER_PREFIX + str(member_id)
         self.tree.insert(
             "", "end",
             iid=parent_iid,
-            text=f"👤 {name}  ({len(loans)})",
+            text=f"  👤  {name}  ({len(loans)})",
             values=(
                 phone or "—",
-                "", "", "", "", "",  # no per-loan columns at member level
+                "", "", "", "", "", "",
                 summary,
             ),
             tags=(parent_tag,),
-            open=True,
+            open=self._all_expanded,
         )
 
         for ln in loans:
             if ln.is_returned:
-                status, stag = "✓ Returned", "status_returned"
+                status, stag = "✓  Returned", "status_returned"
             elif ln.is_overdue:
-                status, stag = "⚠ Overdue", "status_overdue"
+                status, stag = "⚠  Overdue",  "status_overdue"
             else:
-                status, stag = "● Active", "status_active"
+                status, stag = "●  Active",   "status_active"
 
             self.tree.insert(
                 parent_iid, "end",
                 iid=self._LOAN_PREFIX + str(ln.id),
-                text=f"    📖 {ln.book_title}",
+                text=f"      📖  {ln.book_title}",
                 values=(
-                    "",  # phone column blank on child rows
+                    "",
+                    ln.serial_number or "—",
                     ln.borrowed_on,
                     ln.due_on or "—",
                     self._format_days_left(ln),
@@ -278,28 +286,22 @@ class LoansTab(ttk.Frame):
                 tags=(stag,),
             )
 
-    # ---------------------------------------------------- selection      #
+    # ─────────────────────────────────────────── selection ──
 
     def _selected_loan_id(self) -> int | None:
         sel = self.tree.selection()
         if not sel:
-            messagebox.showinfo(
-                "Select a loan",
-                "Please select a loan first."
-            )
+            messagebox.showinfo("Select a loan",
+                                "Please select a loan first.")
             return None
         iid = sel[0]
         if not iid.startswith(self._LOAN_PREFIX):
-            messagebox.showinfo(
-                "Select a loan",
-                "Please select a specific loan, not the member row."
-            )
+            messagebox.showinfo("Select a loan",
+                                "Please select a specific loan, not the member row.")
             return None
         return int(iid[len(self._LOAN_PREFIX):])
 
     def _selected_member_id(self) -> int | None:
-        """Resolve selection → member_id. Works for both member rows and
-        child loan rows (walks up to the parent)."""
         sel = self.tree.selection()
         if not sel:
             return None
@@ -312,7 +314,7 @@ class LoansTab(ttk.Frame):
                 return int(parent[len(self._MEMBER_PREFIX):])
         return None
 
-    # ---------------------------------------------------- actions       #
+    # ─────────────────────────────────────────── actions ──
 
     def borrow_book(self) -> None:
         books = self._services.books.list_all()
@@ -363,11 +365,7 @@ class LoansTab(ttk.Frame):
                     on_success=self._after_change)
 
     def notify_whatsapp(self) -> None:
-        """Open WhatsApp pre-filled with this member's outstanding loans.
-
-        Always active. Acts on whichever member is currently selected —
-        either directly or by virtue of having one of their loans selected.
-        """
+        """Open WhatsApp pre-filled with this member's outstanding loans."""
         member_id = self._selected_member_id()
         if member_id is None:
             messagebox.showinfo(
@@ -381,9 +379,6 @@ class LoansTab(ttk.Frame):
             messagebox.showerror("Not found", "That member no longer exists.")
             return
 
-        # Pull this member's loans fresh — the list might have been filtered
-        # by date range on screen, but the message should reflect everything
-        # they actually have out.
         all_loans = self._services.loans.list_all()
         their_loans = [ln for ln in all_loans if ln.member_id == member_id]
 

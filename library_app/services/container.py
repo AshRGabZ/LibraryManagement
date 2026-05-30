@@ -15,6 +15,7 @@ from .export_service import ExportService
 from .language_service import LanguageService
 from .loan_service import LoanService
 from .member_service import MemberService
+from .label_service import LabelService
 from .notification_service import NotificationService
 from .stats_service import StatsService
 
@@ -28,6 +29,7 @@ class Services:
     languages: LanguageService
     stats: StatsService
     notify: NotificationService
+    label: LabelService
     export: type[ExportService]  # stateless — pass the class itself
 
     @classmethod
@@ -41,5 +43,6 @@ class Services:
             languages=LanguageService(db),
             stats=StatsService(db),
             notify=NotificationService(),
+            label=LabelService(),
             export=ExportService,
         )

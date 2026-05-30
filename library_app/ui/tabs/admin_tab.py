@@ -39,7 +39,7 @@ class AdminTab(ttk.Frame):
                   ).pack(fill="x")
 
         sub = ttk.Notebook(self)
-        sub.pack(fill="both", expand=True, padx=14, pady=14)
+        sub.pack(fill="both", expand=True, padx=8, pady=8)
         self._sub_notebook = sub
 
         # Dashboard is first so admins see the headline metrics on entry.
@@ -64,7 +64,7 @@ class AdminTab(ttk.Frame):
         # Pack with `expand=True` on both was distributing space based on
         # natural requested size, which pushed the bottom input rows below
         # the visible window once the lists grew.
-        main = tk.Frame(parent, bg=Palette.BG, padx=10, pady=10)
+        main = tk.Frame(parent, bg=Palette.BG, padx=8, pady=6)
         main.pack(fill="both", expand=True)
         main.columnconfigure(0, weight=1)
         main.rowconfigure(0, weight=3)  # Books gets 3 parts
@@ -73,8 +73,8 @@ class AdminTab(ttk.Frame):
         # Books section
         bf = tk.LabelFrame(main, text="📚 Books", bg=Palette.BG,
                            fg=Palette.TEXT, font=heading_font(),
-                           padx=10, pady=10)
-        bf.grid(row=0, column=0, sticky="nsew", pady=(0, 14))
+                           padx=8, pady=6)
+        bf.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
 
         # Search bar (live filter — typing immediately filters the table).
         # Backed by `BookService.list_with_details(search=...)` so the filter
@@ -91,25 +91,30 @@ class AdminTab(ttk.Frame):
         ttk.Entry(sr, textvariable=self.book_search_var, width=32,
                   font=base_font()).pack(side="left")
 
-        # Cap the visible rows so the Add/Edit/Delete row below the tree
-        # always stays on-screen even on smaller window heights.
         container, self.books_tree = build_treeview(bf, [
-            ("id", "ID", 60, "center"),
-            ("title", "Title", 180, "w"),
-            ("author", "Author", 120, "w"),
-            ("category", "Category", 100, "w"),
-            ("language", "Language", 100, "w"),
-        ], height=8)
-        container.pack(fill="both", expand=True, pady=(0, 10))
+            ("id",       "ID",        60, "center"),
+            ("title",    "Title",    175, "w"),
+            ("author",   "Author",   120, "w"),
+            ("category", "Category",  95, "w"),
+            ("language", "Language",  95, "w"),
+            ("copies",   "Copies",    80, "center"),
+        ], height=6)
 
+        # Action row pinned to the BOTTOM — packed before the tree so it is
+        # always reserved and never clipped when the window is short. The
+        # tree then absorbs the shrink and scrolls within its own scrollbar.
         btn_row = tk.Frame(bf, bg=Palette.BG)
-        btn_row.pack(fill="x")
+        btn_row.pack(side="bottom", fill="x", pady=(8, 0))
         ttk.Button(btn_row, text="➕ Add Book", style="Success.TButton",
                    command=self._add_book).pack(side="left", padx=(0, 4))
         ttk.Button(btn_row, text="✏ Edit", style="Primary.TButton",
                    command=self._edit_book).pack(side="left", padx=4)
+        ttk.Button(btn_row, text="📦 Copies…", style="Neutral.TButton",
+                   command=self._manage_copies).pack(side="left", padx=4)
         ttk.Button(btn_row, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_book).pack(side="left", padx=4)
+
+        container.pack(fill="both", expand=True)
         self.books_tree.bind("<Double-1>", lambda e: self._edit_book())
 
         # Categories & Languages side by side — grid so columns share width
@@ -124,7 +129,7 @@ class AdminTab(ttk.Frame):
         # Categories
         cf = tk.LabelFrame(meta, text="🏷️ Categories", bg=Palette.BG,
                            fg=Palette.TEXT, font=heading_font(),
-                           padx=10, pady=10)
+                           padx=8, pady=6)
         cf.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
 
         cat_search = tk.Frame(cf, bg=Palette.BG)
@@ -141,11 +146,11 @@ class AdminTab(ttk.Frame):
         container, self.cat_tree = build_treeview(cf, [
             ("id", "ID", 40, "center"),
             ("name", "Name", 150, "w"),
-        ], height=5)
-        container.pack(fill="both", expand=True, pady=(0, 10))
+        ], height=4)
 
+        # Input row reserved at the bottom (packed before the tree).
         ci = tk.Frame(cf, bg=Palette.BG)
-        ci.pack(fill="x", pady=(0, 8))
+        ci.pack(side="bottom", fill="x", pady=(8, 0))
         self.cat_entry = ttk.Entry(ci, font=base_font())
         self.cat_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(ci, text="➕ Add", style="Success.TButton",
@@ -153,10 +158,12 @@ class AdminTab(ttk.Frame):
         ttk.Button(ci, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_category).pack(side="left")
 
+        container.pack(fill="both", expand=True)
+
         # Languages
         lf = tk.LabelFrame(meta, text="🌐 Languages", bg=Palette.BG,
                            fg=Palette.TEXT, font=heading_font(),
-                           padx=10, pady=10)
+                           padx=8, pady=6)
         lf.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
 
         lang_search = tk.Frame(lf, bg=Palette.BG)
@@ -173,11 +180,11 @@ class AdminTab(ttk.Frame):
         container, self.lang_tree = build_treeview(lf, [
             ("id", "ID", 40, "center"),
             ("name", "Name", 150, "w"),
-        ], height=5)
-        container.pack(fill="both", expand=True, pady=(0, 10))
+        ], height=4)
 
+        # Input row reserved at the bottom (packed before the tree).
         li = tk.Frame(lf, bg=Palette.BG)
-        li.pack(fill="x", pady=(0, 8))
+        li.pack(side="bottom", fill="x", pady=(8, 0))
         self.lang_entry = ttk.Entry(li, font=base_font())
         self.lang_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(li, text="➕ Add", style="Success.TButton",
@@ -185,13 +192,15 @@ class AdminTab(ttk.Frame):
         ttk.Button(li, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_language).pack(side="left")
 
+        container.pack(fill="both", expand=True)
+
     def _build_members_management(self, parent: tk.Widget) -> None:
-        main = tk.Frame(parent, bg=Palette.BG, padx=10, pady=10)
+        main = tk.Frame(parent, bg=Palette.BG, padx=8, pady=6)
         main.pack(fill="both", expand=True)
 
         mf = tk.LabelFrame(main, text="👥 Members", bg=Palette.BG,
                            fg=Palette.TEXT, font=heading_font(),
-                           padx=10, pady=10)
+                           padx=8, pady=6)
         mf.pack(fill="both", expand=True)
 
         sr = tk.Frame(mf, bg=Palette.BG)
@@ -212,18 +221,20 @@ class AdminTab(ttk.Frame):
             ("email", "Email", 220, "w"),
             ("phone", "Phone", 130, "center"),
             ("joined", "Joined", 110, "center"),
-        ])
-        container.pack(fill="both", expand=True, pady=(0, 10))
-        self.members_tree.bind("<Double-1>", lambda e: self._edit_member())
+        ], height=8)
 
+        # Action row reserved at the bottom (packed before the tree).
         br = tk.Frame(mf, bg=Palette.BG)
-        br.pack(fill="x")
+        br.pack(side="bottom", fill="x", pady=(8, 0))
         ttk.Button(br, text="➕ Add Member", style="Success.TButton",
                    command=self._add_member).pack(side="left", padx=(0, 4))
         ttk.Button(br, text="✏ Edit", style="Primary.TButton",
                    command=self._edit_member).pack(side="left", padx=4)
         ttk.Button(br, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_member).pack(side="left", padx=4)
+
+        container.pack(fill="both", expand=True)
+        self.members_tree.bind("<Double-1>", lambda e: self._edit_member())
 
     # -------------------------------------------------------------- actions #
 
@@ -294,6 +305,19 @@ class AdminTab(ttk.Frame):
             self.on_change()
         except LibraryError as e:
             messagebox.showerror("Cannot delete", str(e))
+
+    def _manage_copies(self) -> None:
+        """Open the per-copy serial editor for the selected book."""
+        sel = self.books_tree.selection()
+        if not sel:
+            messagebox.showinfo("Select a book", "Please select a book first.")
+            return
+        book_id = int(self.books_tree.item(sel[0])["values"][0])
+        from ..dialogs import ManageCopiesDialog
+        ManageCopiesDialog(self.winfo_toplevel(), self._services, book_id)
+        # Renames change visible state in Books tab; cascade refresh.
+        self.refresh()
+        self.on_change()
 
     def _add_category(self) -> None:
         name = self.cat_entry.get().strip()
@@ -426,7 +450,8 @@ class AdminTab(ttk.Frame):
             self.books_tree.insert(
                 "", "end",
                 values=(b.id, b.title, b.author,
-                        b.category_name or "—", b.language_name or "—"),
+                        b.category_name or "—", b.language_name or "—",
+                        f"{b.available_copies}/{b.total_copies}"),
                 tags=(tag,),
             )
 

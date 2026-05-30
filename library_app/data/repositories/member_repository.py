@@ -56,3 +56,33 @@ class MemberRepository:
             (member_id,),
         ).fetchone()
         return row["cnt"]
+
+    def find_by_name_and_phone(
+        self,
+        name: str,
+        phone: str | None,
+        *,
+        exclude_id: int | None = None,
+    ) -> Member | None:
+        """Return a member matching the (name, phone) composite key, or None.
+
+        Used to enforce "no two members with the same name + phone" at the
+        service layer. `exclude_id` is set on UPDATE so a member doesn't
+        collide with themselves.
+
+        Phone NULLs use SQL's normal "NULL is never equal" semantics — two
+        members named "Alice" both with NULL phone don't collide here.
+        """
+        sql_parts = ["SELECT * FROM members WHERE name = ?"]
+        params: list = [name]
+        if phone is None:
+            sql_parts.append("AND phone IS NULL")
+        else:
+            sql_parts.append("AND phone = ?")
+            params.append(phone)
+        if exclude_id is not None:
+            sql_parts.append("AND id <> ?")
+            params.append(exclude_id)
+        sql_parts.append("LIMIT 1")
+        row = self._conn.execute(" ".join(sql_parts), params).fetchone()
+        return Member.from_row(row) if row else None

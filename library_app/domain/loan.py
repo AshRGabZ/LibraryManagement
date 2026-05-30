@@ -14,6 +14,7 @@ class Loan:
     due_on: str | None
     returned_on: str | None
     renew_count: int
+    copy_id: int | None  # FK to book_copies.id; NULL for legacy loans
 
     @property
     def is_returned(self) -> bool:
@@ -42,18 +43,26 @@ class Loan:
             due_on=row["due_on"],
             returned_on=row["returned_on"],
             renew_count=row["renew_count"],
+            copy_id=row["copy_id"] if "copy_id" in row.keys() else None,
         )
 
 
 @dataclass(frozen=True)
 class LoanWithDetails(Loan):
-    """A loan joined with its book title and member name — for display."""
+    """A loan joined with its book title, member name, and copy serial.
+
+    `serial_number` is None only for legacy loans created before per-copy
+    tracking landed (migration leaves their copy_id NULL if no copy could be
+    assigned). The UI shows "—" in that case.
+    """
 
     book_title: str
     member_name: str
+    serial_number: str | None
 
     @classmethod
     def from_row(cls, row: Mapping[str, Any]) -> "LoanWithDetails":
+        keys = row.keys()
         return cls(
             id=row["id"],
             book_id=row["book_id"],
@@ -62,6 +71,8 @@ class LoanWithDetails(Loan):
             due_on=row["due_on"],
             returned_on=row["returned_on"],
             renew_count=row["renew_count"],
+            copy_id=row["copy_id"] if "copy_id" in keys else None,
             book_title=row["book_title"],
             member_name=row["member_name"],
+            serial_number=row["serial_number"] if "serial_number" in keys else None,
         )

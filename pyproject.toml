@@ -35,17 +35,25 @@ dependencies = []
 excel = [
     "openpyxl>=3.0",
 ]
+# Label preview/download (book labels) — Pillow generates the PNG/PDF.
+# The rest of the app works fine without it; the label dialog surfaces a
+# clear "install Pillow" message when not present.
+labels = [
+    "Pillow>=9.0",
+]
 dev = [
     "pytest>=7",
     "pytest-cov",
     "mypy",
     "ruff",
     "openpyxl>=3.0",
+    "Pillow>=9.0",
 ]
 package = [
     # Cross-platform desktop packaging. Briefcase produces .app/.msi/.deb builds.
     "briefcase>=0.3",
     "openpyxl>=3.0",
+    "Pillow>=9.0",
 ]
 
 [project.scripts]

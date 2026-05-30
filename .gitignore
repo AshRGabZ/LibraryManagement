@@ -1,3 +1,12 @@
+# ── GHCC Library application data (runtime, not source) ──
+# SQLite database + its write-ahead-log sidecars, and per-run test databases.
+library.db
+library.db-wal
+library.db-shm
+test_*.db
+# Application log (also matched by *.log below; explicit for clarity).
+library_app.log
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
