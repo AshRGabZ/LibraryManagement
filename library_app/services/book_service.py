@@ -23,25 +23,23 @@ class BookService:
     def add(
         self,
         title: str,
-        author: str,
+        author_id: int | None,
         isbn: str | None,
         year: int | None,
         category_id: int | None,
         language_id: int | None,
         total_copies: int,
     ) -> int:
-        title, author = title.strip(), author.strip()
+        title = title.strip()
         if not title:
             raise ValidationError("Title is required.")
-        if not author:
-            raise ValidationError("Author is required.")
         if total_copies < 1:
             raise ValidationError("Total copies must be at least 1.")
 
         try:
             with self._db.transaction() as conn:
                 book_id = BookRepository(conn).add(
-                    title, author, isbn or None, year,
+                    title, author_id, isbn or None, year,
                     category_id, language_id, total_copies,
                 )
                 # Create one row per physical copy. Serials are auto-generated
@@ -53,22 +51,65 @@ class BookService:
                 raise ValidationError(f"A book with ISBN '{isbn}' already exists.")
             raise
 
+    def add_or_merge(
+        self,
+        title: str,
+        author_id: int | None,
+        isbn: str | None,
+        year: int | None,
+        category_id: int | None,
+        language_id: int | None,
+        total_copies: int,
+    ) -> tuple[int, bool]:
+        """Add a book — but if one with the same (title, author, language)
+        already exists, add `total_copies` more physical copies to it instead
+        of creating a duplicate record.
+
+        Returns ``(book_id, merged)`` where `merged` is True when the copies
+        were folded into an existing book. The incoming isbn/year/category are
+        ignored on a merge (the existing record's details are kept).
+        """
+        title = title.strip()
+        if not title:
+            raise ValidationError("Title is required.")
+        if total_copies < 1:
+            raise ValidationError("Total copies must be at least 1.")
+
+        existing = BookRepository(self._db.connection).find_duplicate(
+            title, author_id, language_id
+        )
+        if existing is None:
+            new_id = self.add(title, author_id, isbn, year,
+                              category_id, language_id, total_copies)
+            return new_id, False
+
+        # Merge: bump the existing book's totals and materialise the new copies.
+        with self._db.transaction() as conn:
+            repo = BookRepository(conn)
+            new_total = existing.total_copies + total_copies
+            new_available = existing.available_copies + total_copies
+            repo.update(
+                existing.id, existing.title, existing.author_id,
+                existing.isbn, existing.year, existing.category_id,
+                existing.language_id, new_total, new_available,
+            )
+            BookCopyRepository(conn).sync_count(existing.id, new_total)
+        return existing.id, True
+
     def update(
         self,
         book_id: int,
         title: str,
-        author: str,
+        author_id: int | None,
         isbn: str | None,
         year: int | None,
         category_id: int | None,
         language_id: int | None,
         total_copies: int,
     ) -> None:
-        title, author = title.strip(), author.strip()
+        title = title.strip()
         if not title:
             raise ValidationError("Title is required.")
-        if not author:
-            raise ValidationError("Author is required.")
 
         with self._db.transaction() as conn:
             repo = BookRepository(conn)
@@ -87,7 +128,7 @@ class BookService:
 
             try:
                 repo.update(
-                    book_id, title, author, isbn or None, year,
+                    book_id, title, author_id, isbn or None, year,
                     category_id, language_id, total_copies, new_available,
                 )
                 # Reconcile physical copies with the new total. sync_count

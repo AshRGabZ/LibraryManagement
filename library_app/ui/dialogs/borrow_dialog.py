@@ -5,7 +5,7 @@ from datetime import date
 from tkinter import messagebox, ttk
 from typing import Callable
 
-from ...domain import Book, Member
+from ...domain import BookWithDetails, Member
 from ...exceptions import LibraryError
 from ...services import Services
 from ..theme import Palette, base_font, heading_font, small_font
@@ -21,7 +21,7 @@ class BorrowDialog(tk.Toplevel):
         self,
         parent: tk.Widget,
         services: Services,
-        books: list[Book],
+        books: list[BookWithDetails],
         members: list[Member],
         on_success: Callable[[], None],
     ) -> None:
@@ -126,9 +126,10 @@ class BorrowDialog(tk.Toplevel):
         book_card = tk.Frame(body, bg=Palette.BORDER)
         book_card.pack(fill="both", expand=True, pady=(0, 14))
 
-        def fmt_book(b: Book) -> tuple[str, bool]:
+        def fmt_book(b: BookWithDetails) -> tuple[str, bool]:
             mark = "🟢" if b.is_available else "🔴"
-            label = (f"  {mark}  {b.title}  —  {b.author}   "
+            who = b.author_name or "Unknown author"
+            label = (f"  {mark}  {b.title}  —  {who}   "
                      f"({b.available_copies}/{b.total_copies} available)")
             return label, not b.is_available
 
@@ -136,7 +137,7 @@ class BorrowDialog(tk.Toplevel):
             book_card,
             [b for b in books if b.is_available],
             fmt_book,
-            search_keys=("title", "author", "isbn"),
+            search_keys=("title", "author_name", "isbn"),
             placeholder="🔍  Search by title, author or ISBN…",
             height=7,
         )

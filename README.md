@@ -123,42 +123,81 @@ source venv/bin/activate     # macOS / Linux
 venv\Scripts\activate        # Windows
 ```
 
-### 3. Run the app
+### 3. (Optional) Install extras for full features
+The core app runs on the standard library alone. Two optional packages unlock
+more; without them the app still runs and degrades gracefully:
+
 ```bash
-python main.py
+pip install -r requirements.txt   # openpyxl → Excel import/export · Pillow → book labels
 ```
 
-The first launch automatically creates `library.db` in the project folder.
+### 4. Run the app
+```bash
+python3 main.py          # or:  python3 -m library_app
+```
+The first launch creates the database automatically (see **Where Your Data Lives** below).
+
+> **macOS note:** run with a Python whose **Tk ≥ 8.6**
+> (check: `python3 -c "import tkinter; print(tkinter.TkVersion)"`).
+> Apple's system Python (`/usr/bin/python3`) ships **Tk 8.5**, which renders a
+> **black/blank window**. Use a Python from [python.org](https://python.org),
+> Homebrew, or conda instead.
 
 ---
 
-## 📦 Building a Standalone Executable
+## 📦 Building a Standalone Desktop App
 
-You can package the app into a single executable using **PyInstaller**:
+Ready-made build scripts in the project root wrap **PyInstaller** and bundle
+everything (Tkinter, `openpyxl`, `Pillow`).
 
-### Install PyInstaller
+> ⚠️ **Build on the OS you're targeting.** PyInstaller is **not** a cross-compiler:
+> running it on macOS produces a macOS `.app`; to get a Windows `.exe` you must
+> run the build **on Windows**.
+
+### macOS → `GHCC Library.app`
 ```bash
-pip install pyinstaller
+bash build.sh            # or:  chmod +x build.sh && ./build.sh
 ```
+- Auto-selects a Python with **Tk ≥ 8.6** (avoids the black-window bug) and
+  aborts with guidance if only Tk 8.5 is found.
+- Output: **`dist/GHCC Library.app`** — launch with `open "dist/GHCC Library.app"`.
 
-### macOS
+### Windows → `GHCC Library.exe`
+Copy the project to a Windows machine, then **double-click `build.bat`**
+(or run `build.bat` from a terminal).
+- Output: **`dist\GHCC Library.exe`** — a single double-clickable file.
+
+Both scripts: print the Python/Tk version → install build deps → clean old
+`build/`, `dist/`, `*.spec` → run PyInstaller (`--windowed`; Windows also `--onefile`).
+
+> 💡 Add an icon with `--icon app.icns` (macOS) / `--icon app.ico` (Windows) inside the script.
+> If antivirus flags the Windows one-file `.exe`, remove `--onefile` from
+> `build.bat` to get a `dist\GHCC Library\` folder instead.
+
+---
+
+## 🗄️ Where Your Data Lives
+
+The SQLite database (and `library_app.log`) location is chosen automatically:
+
+| How you run it | Database location |
+|---|---|
+| **Packaged app** — macOS `.app` | `~/Library/Application Support/GHCCLibrary/library.db` |
+| **Packaged app** — Windows `.exe` | `%APPDATA%\GHCCLibrary\library.db` |
+| **From source** (`python3 main.py`) | project root — `./library.db` |
+| **`LIBRARY_APP_DB_PATH` env var set** | that exact path (overrides all of the above) |
+
+> The packaged app and run-from-source mode use **separate** database files, so
+> data added in one won't appear in the other.
+
+**Point the app at a specific database:**
 ```bash
-pyinstaller --windowed --onefile --name "LibraryApp" main.py
-```
-The `.app` bundle will be created in the `dist/` folder.
+# macOS / Linux
+LIBRARY_APP_DB_PATH="/path/to/library.db" open "dist/GHCC Library.app"
 
-### Windows
-```bash
-pyinstaller --noconsole --onefile --name "LibraryApp" main.py
+# Windows (PowerShell)
+$env:LIBRARY_APP_DB_PATH="C:\path\to\library.db"; & ".\dist\GHCC Library.exe"
 ```
-The `LibraryApp.exe` will be created in the `dist/` folder.
-
-### Linux
-```bash
-pyinstaller --onefile --name "LibraryApp" main.py
-```
-
-> 💡 To include a custom app icon, add `--icon=icon.icns` (macOS) or `--icon=icon.ico` (Windows).
 
 ---
 
@@ -235,20 +274,33 @@ pyinstaller --onefile --name "LibraryApp" main.py
 
 ## ⚙️ Configuration
 
-Edit constants in `models.py` to customize:
+Edit constants in `library_app/config.py` to customize:
 
 ```python
-class LoanModel:
-    DEFAULT_LOAN_DAYS = 14   # Default loan duration
-    MAX_RENEWALS      = 3    # Max renewals allowed per loan
+DEFAULT_LOAN_DAYS   = 14    # Default loan duration
+MAX_RENEWALS        = 3     # Max renewals allowed per loan
+DEFAULT_RENEW_DAYS  = 7     # Days added per renewal
+DEFAULT_COUNTRY_CODE = "91" # Prefix for WhatsApp reminder links
+WHATSAPP_TEMPLATE   = "..." # Reminder message body
 ```
+
+> Tip: set the `LIBRARY_APP_DB_PATH` environment variable to control where the
+> database file is stored (see **Where Your Data Lives**).
 
 ---
 
 ## 🐛 Troubleshooting
 
+**Black / blank window on macOS?**
+You're running with **Tk 8.5** (Apple's system Python). Use a Python with
+**Tk ≥ 8.6** (python.org / Homebrew / conda). The `build.sh` script picks one
+automatically; for running from source, check with
+`python3 -c "import tkinter; print(tkinter.TkVersion)"`.
+
 **Database error / corrupted DB?**
-Delete `library.db` and restart the app — it will be recreated.
+Delete the `library.db` file and restart — it will be recreated. Find it via the
+**Where Your Data Lives** table above (e.g. `~/Library/Application Support/GHCCLibrary/`
+for the packaged macOS app).
 
 **Tkinter not found on Linux?**
 ```bash

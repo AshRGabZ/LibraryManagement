@@ -30,14 +30,19 @@ def _default_data_dir() -> Path:
     return Path(base) / "GHCCLibrary"
 
 
-# In development, prefer a DB next to the project root so it's easy to inspect.
-# In a packaged build, the user can override via LIBRARY_APP_DB_PATH.
+# Database location, in priority order:
+#   1. LIBRARY_APP_DB_PATH env var — explicit override (any environment).
+#   2. Packaged build (PyInstaller sets sys.frozen) — per-user data dir, since
+#      the bundle itself is read-only and a one-file build's temp dir is wiped
+#      on exit. This is what makes the .exe / .app persist data correctly.
+#   3. Development — project-relative, so the DB is easy to find and inspect.
 import os
 _env_db = os.environ.get("LIBRARY_APP_DB_PATH")
 if _env_db:
     DB_PATH = Path(_env_db)
+elif getattr(sys, "frozen", False):
+    DB_PATH = _default_data_dir() / "library.db"
 else:
-    # Dev mode: project-relative; production builds should set the env var.
     DB_PATH = Path(__file__).resolve().parent.parent / "library.db"
 
 

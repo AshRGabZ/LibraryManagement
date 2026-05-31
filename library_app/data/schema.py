@@ -24,18 +24,24 @@ CREATE TABLE IF NOT EXISTS languages (
     name TEXT NOT NULL UNIQUE
 );
 
+CREATE TABLE IF NOT EXISTS authors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE
+);
+
 CREATE TABLE IF NOT EXISTS books (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     title TEXT NOT NULL,
-    author TEXT NOT NULL,
+    author_id INTEGER,
     isbn TEXT UNIQUE,
     year INTEGER,
     category_id INTEGER,
     language_id INTEGER,
     total_copies INTEGER NOT NULL DEFAULT 1,
     available_copies INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (author_id)   REFERENCES authors(id)    ON DELETE SET NULL,
     FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
-    FOREIGN KEY (language_id) REFERENCES languages(id) ON DELETE SET NULL
+    FOREIGN KEY (language_id) REFERENCES languages(id)  ON DELETE SET NULL
 );
 
 CREATE TABLE IF NOT EXISTS members (
@@ -200,3 +206,36 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
             "UPDATE book_copies SET status='borrowed' WHERE id=?",
             (copy["id"],),
         )
+
+    # 008 — author_id on books (FK to the new authors table). The authors
+    # table itself is created by SCHEMA_SQL above (idempotent for old DBs).
+    if not _column_exists(conn, "books", "author_id"):
+        conn.execute(
+            "ALTER TABLE books ADD COLUMN author_id INTEGER "
+            "REFERENCES authors(id) ON DELETE SET NULL"
+        )
+
+    # 009 — promote the legacy free-text `books.author` to real author rows,
+    # then drop the column. Idempotent: once `author` is gone we skip entirely.
+    # SQLite ≥ 3.35 supports ALTER TABLE … DROP COLUMN; dropping a plain (non
+    # indexed, non-FK) column keeps the table name so loans/book_copies FKs
+    # that reference books(id) stay valid.
+    if _column_exists(conn, "books", "author"):
+        legacy = conn.execute(
+            "SELECT DISTINCT author FROM books "
+            "WHERE author IS NOT NULL AND TRIM(author) <> ''"
+        ).fetchall()
+        for row in legacy:
+            name = row["author"].strip()
+            conn.execute(
+                "INSERT OR IGNORE INTO authors (name) VALUES (?)", (name,)
+            )
+            conn.execute(
+                "UPDATE books "
+                "SET author_id = (SELECT id FROM authors WHERE name = ?) "
+                "WHERE author_id IS NULL AND TRIM(author) = ?",
+                (name, name),
+            )
+        conn.execute("ALTER TABLE books DROP COLUMN author")
+        _log.info("Migrated %d distinct author name(s) into authors table",
+                  len(legacy))

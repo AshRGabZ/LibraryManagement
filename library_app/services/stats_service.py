@@ -89,10 +89,12 @@ class StatsService:
     def most_borrowed_books(self, limit: int = 10) -> list[RankedItem]:
         rows = self._db.connection.execute(
             """
-            SELECT books.title AS name, books.author AS author,
+            SELECT books.title AS name,
+                   COALESCE(authors.name, '') AS author,
                    COUNT(*) AS cnt
             FROM loans
             JOIN books ON books.id = loans.book_id
+            LEFT JOIN authors ON authors.id = books.author_id
             GROUP BY loans.book_id
             ORDER BY cnt DESC, books.title
             LIMIT ?

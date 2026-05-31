@@ -123,20 +123,21 @@ class AdminTab(ttk.Frame):
         container.pack(fill="both", expand=True)
         self.books_tree.bind("<Double-1>", lambda e: self._edit_book())
 
-        # Categories & Languages side by side — grid so columns share width
-        # and the single row stretches with the parent (rowconfigure weight 1
-        # ensures the LabelFrames take all available vertical space).
+        # Authors, Categories & Languages side by side — grid so columns share
+        # width and the single row stretches with the parent (rowconfigure
+        # weight 1 ensures the LabelFrames take all available vertical space).
         meta = tk.Frame(main, bg=Palette.BG)
         meta.grid(row=1, column=0, sticky="nsew")
         meta.columnconfigure(0, weight=1)
         meta.columnconfigure(1, weight=1)
+        meta.columnconfigure(2, weight=1)
         meta.rowconfigure(0, weight=1)
 
         # Categories
         cf = tk.LabelFrame(meta, text="🏷️ Categories", bg=Palette.BG,
                            fg=Palette.TEXT, font=heading_font(),
                            padx=8, pady=6)
-        cf.grid(row=0, column=0, sticky="nsew", padx=(0, 7))
+        cf.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
 
         cat_search = tk.Frame(cf, bg=Palette.BG)
         cat_search.pack(fill="x", pady=(0, 6))
@@ -170,7 +171,7 @@ class AdminTab(ttk.Frame):
         lf = tk.LabelFrame(meta, text="🌐 Languages", bg=Palette.BG,
                            fg=Palette.TEXT, font=heading_font(),
                            padx=8, pady=6)
-        lf.grid(row=0, column=1, sticky="nsew", padx=(7, 0))
+        lf.grid(row=0, column=1, sticky="nsew", padx=(5, 5))
 
         lang_search = tk.Frame(lf, bg=Palette.BG)
         lang_search.pack(fill="x", pady=(0, 6))
@@ -200,6 +201,40 @@ class AdminTab(ttk.Frame):
 
         container.pack(fill="both", expand=True)
 
+        # Authors
+        af = tk.LabelFrame(meta, text="👤 Authors", bg=Palette.BG,
+                           fg=Palette.TEXT, font=heading_font(),
+                           padx=8, pady=6)
+        af.grid(row=0, column=2, sticky="nsew", padx=(5, 0))
+
+        author_search = tk.Frame(af, bg=Palette.BG)
+        author_search.pack(fill="x", pady=(0, 6))
+        tk.Label(author_search, text="🔎", bg=Palette.BG, fg=Palette.TEXT,
+                 font=base_font()).pack(side="left", padx=(0, 4))
+        self.author_search_var = tk.StringVar()
+        self.author_search_var.trace_add(
+            "write", lambda *_: self._refresh_authors_table()
+        )
+        ttk.Entry(author_search, textvariable=self.author_search_var,
+                  font=base_font()).pack(side="left", fill="x", expand=True)
+
+        container, self.author_tree = build_treeview(af, [
+            ("id", "ID", 40, "center"),
+            ("name", "Name", 150, "w"),
+        ], height=8)
+
+        # Input row reserved at the bottom (packed before the tree).
+        ai = tk.Frame(af, bg=Palette.BG)
+        ai.pack(side="bottom", fill="x", pady=(8, 0))
+        self.author_entry = ttk.Entry(ai, font=base_font())
+        self.author_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+        ttk.Button(ai, text="➕ Add", style="Success.TButton",
+                   command=self._add_author).pack(side="left", padx=(0, 4))
+        ttk.Button(ai, text="🗑 Delete", style="Danger.TButton",
+                   command=self._delete_author).pack(side="left")
+
+        container.pack(fill="both", expand=True)
+
     def _build_members_management(self, parent: tk.Widget) -> None:
         main = tk.Frame(parent, bg=Palette.BG, padx=8, pady=6)
         main.pack(fill="both", expand=True)
@@ -221,19 +256,23 @@ class AdminTab(ttk.Frame):
         ttk.Entry(sr, textvariable=self.member_search_var, width=30,
                   font=base_font()).pack(side="left")
 
+        # "extended" selection so several members can be selected (Ctrl/Shift-
+        # click) and deleted in one go.
         container, self.members_tree = build_treeview(mf, [
             ("id", "ID", 60, "center"),
             ("name", "Name", 200, "w"),
             ("email", "Email", 220, "w"),
             ("phone", "Phone", 130, "center"),
             ("joined", "Joined", 110, "center"),
-        ], height=8)
+        ], height=8, selectmode="extended")
 
         # Action row reserved at the bottom (packed before the tree).
         br = tk.Frame(mf, bg=Palette.BG)
         br.pack(side="bottom", fill="x", pady=(8, 0))
         ttk.Button(br, text="➕ Add Member", style="Success.TButton",
                    command=self._add_member).pack(side="left", padx=(0, 4))
+        ttk.Button(br, text="📥 Import", style="Primary.TButton",
+                   command=self._import_members).pack(side="left", padx=4)
         ttk.Button(br, text="✏ Edit", style="Primary.TButton",
                    command=self._edit_member).pack(side="left", padx=4)
         ttk.Button(br, text="🗑 Delete", style="Danger.TButton",
@@ -252,12 +291,21 @@ class AdminTab(ttk.Frame):
         try:
             year = int(d["year"]) if d["year"] else None
             total = int(d["total_copies"]) if d["total_copies"] else 1
-            self._services.books.add(
-                d["title"], d["author"], d["isbn"] or None, year,
+            book_id, merged = self._services.books.add_or_merge(
+                d["title"], d["author_id"], d["isbn"] or None, year,
                 d["category_id"], d["language_id"], total,
             )
             self.refresh()
             self.on_change()
+            if merged:
+                book = self._services.books.get(book_id)
+                copies_word = "copy" if total == 1 else "copies"
+                messagebox.showinfo(
+                    "Added as copies",
+                    f"A book titled “{book.title}” with the same author and "
+                    f"language already exists.\n\nAdded {total} {copies_word} "
+                    f"to it — it now has {book.total_copies} total."
+                )
         except (LibraryError, ValueError) as e:
             messagebox.showerror("Error", str(e))
 
@@ -272,7 +320,7 @@ class AdminTab(ttk.Frame):
         if book is None:
             return
         initial = {
-            "title": book.title, "author": book.author,
+            "title": book.title, "author_id": book.author_id,
             "isbn": book.isbn, "year": book.year,
             "total_copies": book.total_copies,
             "category_id": book.category_id,
@@ -287,7 +335,7 @@ class AdminTab(ttk.Frame):
             year = int(d["year"]) if d["year"] else None
             total = int(d["total_copies"]) if d["total_copies"] else 1
             self._services.books.update(
-                book_id, d["title"], d["author"], d["isbn"] or None, year,
+                book_id, d["title"], d["author_id"], d["isbn"] or None, year,
                 d["category_id"], d["language_id"], total,
             )
             self.refresh()
@@ -352,6 +400,14 @@ class AdminTab(ttk.Frame):
             on_success=lambda: (self.refresh(), self.on_change()),
         )
 
+    def _import_members(self) -> None:
+        """Open the bulk-import dialog (Excel/CSV → members)."""
+        from ..dialogs import ImportMembersDialog
+        ImportMembersDialog(
+            self.winfo_toplevel(), self._services,
+            on_success=lambda: (self.refresh(), self.on_change()),
+        )
+
     def _manage_copies(self) -> None:
         """Open the per-copy serial editor for the selected book."""
         sel = self.books_tree.selection()
@@ -393,6 +449,36 @@ class AdminTab(ttk.Frame):
         ):
             return
         self._services.categories.delete(cat_id)
+        self.refresh()
+        self.on_change()
+
+    def _add_author(self) -> None:
+        name = self.author_entry.get().strip()
+        try:
+            self._services.authors.add(name)
+            self.author_entry.delete(0, "end")
+            self.refresh()
+            self.on_change()
+        except LibraryError as e:
+            messagebox.showerror("Error", str(e))
+
+    def _delete_author(self) -> None:
+        sel = self.author_tree.selection()
+        if not sel:
+            messagebox.showinfo("Select an author",
+                                "Please select an author first.")
+            return
+        author_id = int(self.author_tree.item(sel[0])["values"][0])
+        author = self._services.authors.get(author_id)
+        if author is None:
+            return
+        if not messagebox.askyesno(
+            "Confirm",
+            f"Delete author '{author.name}'?\n\n"
+            "Books by this author will have no author set."
+        ):
+            return
+        self._services.authors.delete(author_id)
         self.refresh()
         self.on_change()
 
@@ -444,9 +530,9 @@ class AdminTab(ttk.Frame):
 
     def _edit_member(self) -> None:
         sel = self.members_tree.selection()
-        if not sel:
-            messagebox.showinfo("Select a member",
-                                "Please select a member first.")
+        if len(sel) != 1:
+            messagebox.showinfo("Select one member",
+                                "Please select a single member to edit.")
             return
         mid = int(self.members_tree.item(sel[0])["values"][0])
         m = self._services.members.get(mid)
@@ -471,17 +557,50 @@ class AdminTab(ttk.Frame):
         sel = self.members_tree.selection()
         if not sel:
             messagebox.showinfo("Select a member",
-                                "Please select a member first.")
+                                "Please select one or more members first.")
             return
-        mid = int(self.members_tree.item(sel[0])["values"][0])
-        if not messagebox.askyesno("Confirm", "Delete this member?"):
+
+        # (id, name) for each selected row.
+        members = [
+            (int(self.members_tree.item(s)["values"][0]),
+             str(self.members_tree.item(s)["values"][1]))
+            for s in sel
+        ]
+
+        if len(members) == 1:
+            prompt = f"Delete '{members[0][1]}'?"
+        else:
+            preview = "\n".join(f"  • {name}" for _, name in members[:10])
+            if len(members) > 10:
+                preview += f"\n  …and {len(members) - 10} more"
+            prompt = (f"Delete these {len(members)} members?\n\n{preview}\n\n"
+                      "This cannot be undone.")
+        if not messagebox.askyesno("Confirm delete", prompt):
             return
-        try:
-            self._services.members.delete(mid)
-            self._refresh_members()
-            self.on_change()
-        except LibraryError as e:
-            messagebox.showerror("Cannot delete", str(e))
+
+        # Delete each independently so one blocked member (active loans)
+        # doesn't abort the batch; collect failures and report them together.
+        deleted = 0
+        failures: list[tuple[str, str]] = []
+        for member_id, name in members:
+            try:
+                self._services.members.delete(member_id)
+                deleted += 1
+            except LibraryError as e:
+                failures.append((name, str(e)))
+
+        self._refresh_members()
+        self.on_change()
+
+        if failures:
+            lines: list[str] = []
+            if deleted:
+                lines.append(f"Deleted {deleted} member(s).")
+            lines.append(f"{len(failures)} could not be deleted:")
+            lines.extend(f"  • {name}: {msg}" for name, msg in failures[:10])
+            if len(failures) > 10:
+                lines.append(f"  …and {len(failures) - 10} more.")
+            messagebox.showwarning("Some members not deleted", "\n".join(lines))
 
     # --------------------------------------------------------------- refresh #
     # Per-section refreshes: each search bar updates only its own tree so
@@ -492,11 +611,15 @@ class AdminTab(ttk.Frame):
         for r in self.books_tree.get_children():
             self.books_tree.delete(r)
         search = self.book_search_var.get() if hasattr(self, "book_search_var") else ""
-        for i, b in enumerate(self._services.books.list_with_details(search=search)):
+        # Admin management table is always ordered by ID (the service query
+        # sorts by title for the browse view; here we want stable ID order).
+        books = sorted(self._services.books.list_with_details(search=search),
+                       key=lambda b: b.id)
+        for i, b in enumerate(books):
             tag = "even" if i % 2 else "odd"
             self.books_tree.insert(
                 "", "end",
-                values=(b.id, b.title, b.author,
+                values=(b.id, b.title, b.author_name or "—",
                         b.category_name or "—", b.language_name or "—",
                         f"{b.available_copies}/{b.total_copies}"),
                 tags=(tag,),
@@ -518,11 +641,22 @@ class AdminTab(ttk.Frame):
             tag = "even" if i % 2 else "odd"
             self.lang_tree.insert("", "end", values=(l.id, l.name), tags=(tag,))
 
+    def _refresh_authors_table(self) -> None:
+        for r in self.author_tree.get_children():
+            self.author_tree.delete(r)
+        search = self.author_search_var.get() if hasattr(self, "author_search_var") else ""
+        for i, a in enumerate(self._services.authors.list_all(search=search)):
+            tag = "even" if i % 2 else "odd"
+            self.author_tree.insert("", "end", values=(a.id, a.name), tags=(tag,))
+
     def _refresh_members(self) -> None:
         for r in self.members_tree.get_children():
             self.members_tree.delete(r)
         search = self.member_search_var.get() if hasattr(self, "member_search_var") else ""
-        for i, m in enumerate(self._services.members.list_all(search)):
+        # Always ordered by ID in the admin management table.
+        members = sorted(self._services.members.list_all(search),
+                         key=lambda m: m.id)
+        for i, m in enumerate(members):
             tag = "even" if i % 2 else "odd"
             self.members_tree.insert(
                 "", "end",
@@ -546,6 +680,7 @@ class AdminTab(ttk.Frame):
         self._refresh_books_table()
         self._refresh_categories_table()
         self._refresh_languages_table()
+        self._refresh_authors_table()
         self._refresh_members()
         if hasattr(self, "dashboard"):
             self.dashboard.refresh()

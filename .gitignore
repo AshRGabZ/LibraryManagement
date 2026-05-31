@@ -1,3 +1,7 @@
+# ── macOS Finder metadata (not source) ──
+.DS_Store
+**/.DS_Store
+
 # ── GHCC Library application data (runtime, not source) ──
 # SQLite database + its write-ahead-log sidecars, and per-run test databases.
 library.db

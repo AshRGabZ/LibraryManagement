@@ -8,7 +8,7 @@ from typing import Any, Mapping
 class Book:
     id: int
     title: str
-    author: str
+    author_id: int | None
     isbn: str | None
     year: int | None
     category_id: int | None
@@ -25,7 +25,7 @@ class Book:
         return cls(
             id=row["id"],
             title=row["title"],
-            author=row["author"],
+            author_id=row["author_id"],
             isbn=row["isbn"],
             year=row["year"],
             category_id=row["category_id"],
@@ -37,12 +37,13 @@ class Book:
 
 @dataclass(frozen=True)
 class BookWithDetails(Book):
-    """A book joined with its category and language names — for display.
+    """A book joined with its author, category and language names — for display.
 
-    Eliminates N+1 queries in the UI: the JOIN happens server-side instead of
-    one `SELECT * FROM categories WHERE id=?` per row.
+    Eliminates N+1 queries in the UI: the JOINs happen server-side instead of
+    one `SELECT … WHERE id=?` per row for each related entity.
     """
 
+    author_name: str | None
     category_name: str | None
     language_name: str | None
 
@@ -51,13 +52,14 @@ class BookWithDetails(Book):
         return cls(
             id=row["id"],
             title=row["title"],
-            author=row["author"],
+            author_id=row["author_id"],
             isbn=row["isbn"],
             year=row["year"],
             category_id=row["category_id"],
             language_id=row["language_id"],
             total_copies=row["total_copies"],
             available_copies=row["available_copies"],
+            author_name=row["author_name"],
             category_name=row["category_name"],
             language_name=row["language_name"],
         )

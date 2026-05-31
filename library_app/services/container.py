@@ -9,6 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from ..data import Database
+from .author_service import AuthorService
 from .book_service import BookService
 from .category_service import CategoryService
 from .export_service import ExportService
@@ -28,6 +29,7 @@ class Services:
     loans: LoanService
     categories: CategoryService
     languages: LanguageService
+    authors: AuthorService
     stats: StatsService
     notify: NotificationService
     label: LabelService
@@ -40,17 +42,21 @@ class Services:
         books = BookService(db)
         categories = CategoryService(db)
         languages = LanguageService(db)
+        authors = AuthorService(db)
+        members = MemberService(db)
         return cls(
             books=books,
-            members=MemberService(db),
+            members=members,
             loans=LoanService(db),
             categories=categories,
             languages=languages,
+            authors=authors,
             stats=StatsService(db),
             notify=NotificationService(),
             label=LabelService(),
             export=ExportService,
-            # The importer composes the book/category/language services so it
-            # can resolve-or-create names and insert through the same rules.
-            importer=ImportService(books, categories, languages),
+            # The importer composes the book/category/language/author/member
+            # services so it can resolve-or-create names and insert through the
+            # same validation rules as the rest of the app.
+            importer=ImportService(books, categories, languages, authors, members),
         )

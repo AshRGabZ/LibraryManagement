@@ -147,24 +147,37 @@ def _get_or_create_language(services: Services, name: str) -> int:
         raise
 
 
+def _get_or_create_author(services: Services, name: str) -> int:
+    for a in services.authors.list_all():
+        if a.name == name:
+            return a.id
+    try:
+        return services.authors.add(name)
+    except LibraryError:
+        for a in services.authors.list_all():
+            if a.name == name:
+                return a.id
+        raise
+
+
 def _get_or_create_book(
-    services: Services, title: str, author: str, isbn: str | None,
+    services: Services, title: str, author_id: int | None, isbn: str | None,
     year: int | None, category_id: int | None, language_id: int | None,
     copies: int,
 ) -> int | None:
     for b in services.books.list_all(search=title):
-        if b.title == title and b.author == author:
+        if b.title == title and b.author_id == author_id:
             return b.id
     try:
         return services.books.add(
-            title, author, isbn, year, category_id, language_id, copies
+            title, author_id, isbn, year, category_id, language_id, copies
         )
     except LibraryError:
         # Likely a duplicate ISBN clash from a partial prior run — retry
         # without the ISBN, then fall back to a name lookup.
         try:
             return services.books.add(
-                title, author, None, year, category_id, language_id, copies
+                title, author_id, None, year, category_id, language_id, copies
             )
         except LibraryError:
             for b in services.books.list_all(search=title):
@@ -197,8 +210,9 @@ def seed_sample_data(services: Services, *, with_loans: bool = True) -> dict[str
     Returns a count of rows created/ensured per entity. Safe to run repeatedly.
     """
     counts = {
-        "categories": 0, "languages": 0, "books": 0, "members": 0,
-        "loans": 0, "returned": 0, "renewed": 0, "overdue": 0, "active": 0,
+        "categories": 0, "languages": 0, "authors": 0, "books": 0,
+        "members": 0, "loans": 0, "returned": 0, "renewed": 0,
+        "overdue": 0, "active": 0,
     }
 
     cat_ids: dict[str, int] = {}
@@ -212,14 +226,20 @@ def seed_sample_data(services: Services, *, with_loans: bool = True) -> dict[str
         counts["languages"] += 1
 
     book_ids: dict[str, int] = {}
+    author_ids: dict[str, int] = {}
     for title, author, isbn, year, cat, lang, copies in BOOKS:
+        author_id = author_ids.get(author)
+        if author_id is None and author:
+            author_id = _get_or_create_author(services, author)
+            author_ids[author] = author_id
         bid = _get_or_create_book(
-            services, title, author, isbn, year,
+            services, title, author_id, isbn, year,
             cat_ids.get(cat), lang_ids.get(lang), copies,
         )
         if bid is not None:
             book_ids[title] = bid
             counts["books"] += 1
+    counts["authors"] = len(author_ids)
 
     member_ids: dict[str, int] = {}
     for name, email, phone in MEMBERS:

@@ -331,7 +331,7 @@ class BooksTab(ttk.Frame):
                 iid=book_iid,
                 text=f"📘  {b.title}",
                 values=(
-                    b.author,
+                    b.author_name or "—",
                     b.category_name or "—",
                     b.language_name or "—",
                     b.isbn or "—",

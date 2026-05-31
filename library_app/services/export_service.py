@@ -91,7 +91,7 @@ class ExportService:
         # Empty if no copy info was fetched (caller didn't pass copies_fetcher).
         serials = ", ".join(c.serial_number for c in copies) if copies else ""
         return (
-            b.id, b.title, b.author,
+            b.id, b.title, b.author_name or "",
             b.category_name or "", b.language_name or "",
             b.isbn or "", b.year or "",
             b.available_copies, b.total_copies,

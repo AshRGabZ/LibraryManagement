@@ -317,7 +317,9 @@ class LoansTab(ttk.Frame):
     # ─────────────────────────────────────────── actions ──
 
     def borrow_book(self) -> None:
-        books = self._services.books.list_all()
+        # list_with_details (not list_all) so the picker can show + search by
+        # author name — Book itself only carries author_id now.
+        books = self._services.books.list_with_details()
         members = self._services.members.list_all()
         available_count = sum(1 for b in books if b.is_available)
         _log.info("Borrow clicked — %d total books, %d available, %d members",

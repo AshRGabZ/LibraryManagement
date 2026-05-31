@@ -112,13 +112,33 @@ class BookDialog(tk.Toplevel):
                  ).grid(row=row, column=0, sticky="w", pady=(0, 8))
         row += 1
 
-        for key, label, icon in [
-            ("title",  "Title",           "✏️"),
-            ("author", "Author",          "👤"),
-            ("isbn",   "ISBN  (optional)", "🔢"),
-        ]:
-            row = self._add_field(body, row, key, f"{icon}  {label}",
-                                  initial.get(key))
+        row = self._add_field(body, row, "title", "✏️  Title",
+                              initial.get("title"))
+
+        # Author — searchable dropdown + add-new, same UX as category/language.
+        tk.Label(body, text="👤  Author", bg=Palette.SURFACE,
+                 fg=Palette.MUTED, font=small_font()
+                 ).grid(row=row, column=0, sticky="w", pady=(6, 2))
+        row += 1
+        author_frame = tk.Frame(body, bg=Palette.SURFACE)
+        author_frame.grid(row=row, column=0, sticky="ew")
+        self.author_var = tk.StringVar()
+        self.author_combo = SearchableDropdown(
+            author_frame, textvariable=self.author_var, width=32,
+            font=base_font(),
+        )
+        self._refresh_authors()
+        if initial.get("author_id"):
+            author = self._services.authors.get(initial["author_id"])
+            if author:
+                self.author_var.set(author.name)
+        self.author_combo.pack(side="left", fill="x", expand=True)
+        ttk.Button(author_frame, text="＋ New", style="Neutral.TButton",
+                   command=self._new_author).pack(side="left", padx=(8, 0))
+        row += 1
+
+        row = self._add_field(body, row, "isbn", "🔢  ISBN  (optional)",
+                              initial.get("isbn"))
 
         # ── Section: Publication ──────────────────────────────────────────────
         tk.Frame(body, bg=Palette.BORDER, height=1).grid(
@@ -257,6 +277,22 @@ class BookDialog(tk.Toplevel):
         names = [l.name for l in self._services.languages.list_all()]
         self.language_combo.set_completion_list(names)
 
+    def _refresh_authors(self) -> None:
+        names = [a.name for a in self._services.authors.list_all()]
+        self.author_combo.set_completion_list(names)
+
+    def _new_author(self) -> None:
+        name = simpledialog.askstring("New Author", "Author name:",
+                                      parent=self)
+        if not name:
+            return
+        try:
+            self._services.authors.add(name)
+            self._refresh_authors()
+            self.author_var.set(name)
+        except Exception as e:
+            messagebox.showerror("Error", str(e), parent=self)
+
     def _new_category(self) -> None:
         name = simpledialog.askstring("New Category", "Category name:",
                                       parent=self)
@@ -294,6 +330,10 @@ class BookDialog(tk.Toplevel):
 
     def _on_ok(self) -> None:
         data = {k: e.get().strip() for k, e in self._entries.items()}
+        data["author_id"] = self._resolve_id(
+            self.author_var.get().strip(),
+            self._services.authors.list_all(),
+        )
         data["category_id"] = self._resolve_id(
             self.category_var.get().strip(),
             self._services.categories.list_all(),

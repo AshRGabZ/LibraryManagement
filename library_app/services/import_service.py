@@ -20,9 +20,11 @@ from pathlib import Path
 from typing import Sequence
 
 from ..exceptions import LibraryError
+from .author_service import AuthorService
 from .book_service import BookService
 from .category_service import CategoryService
 from .language_service import LanguageService
+from .member_service import MemberService
 
 
 _log = logging.getLogger(__name__)
@@ -56,10 +58,39 @@ class ParsedRow:
 class ImportResult:
     """Outcome summary returned to the UI after an import run."""
 
-    added: int
+    added: int                             # rows that created a NEW book
+    merged: int                            # rows folded into an existing book
     errors: list[tuple[int, str]]          # (row_num, message)
     created_categories: list[str]
     created_languages: list[str]
+    created_authors: list[str]
+
+    @property
+    def failed(self) -> int:
+        return len(self.errors)
+
+
+@dataclass(frozen=True)
+class ParsedMemberRow:
+    """One members-spreadsheet data row after mapping + validation."""
+
+    row_num: int
+    name: str
+    email: str | None
+    phone: str | None
+    error: str | None = None
+
+    @property
+    def is_valid(self) -> bool:
+        return self.error is None
+
+
+@dataclass(frozen=True)
+class MemberImportResult:
+    """Outcome summary for a members import (no related-entity creation)."""
+
+    added: int
+    errors: list[tuple[int, str]]          # (row_num, message)
 
     @property
     def failed(self) -> int:
@@ -67,7 +98,7 @@ class ImportResult:
 
 
 class ImportService:
-    """Read a spreadsheet of books and insert them via the book service."""
+    """Read a spreadsheet of books or members and insert them via services."""
 
     #: Columns written to a downloadable template (also the canonical order).
     TEMPLATE_HEADERS: tuple[str, ...] = (
@@ -93,38 +124,47 @@ class ImportService:
                    "no of copies", "number of copies", "stock"},
     }
 
+    #: Members template columns + examples.
+    MEMBER_TEMPLATE_HEADERS: tuple[str, ...] = ("Name", "Email", "Phone")
+    _MEMBER_TEMPLATE_EXAMPLE: tuple[tuple, ...] = (
+        ("Alice Johnson", "alice@example.com", "9876543210"),
+        ("Bob Smith", "", "9876501234"),
+    )
+
+    #: Accepted header spellings for members → canonical field.
+    _MEMBER_HEADER_ALIASES: dict[str, set[str]] = {
+        "name": {"name", "member", "member name", "full name"},
+        "email": {"email", "e-mail", "mail", "email address"},
+        "phone": {"phone", "mobile", "phone number", "mobile number",
+                  "contact", "contact number", "cell"},
+    }
+
     def __init__(
         self,
         books: BookService,
         categories: CategoryService,
         languages: LanguageService,
+        authors: AuthorService,
+        members: MemberService,
     ) -> None:
         self._books = books
         self._categories = categories
         self._languages = languages
+        self._authors = authors
+        self._members = members
 
     # ------------------------------------------------------------- parse  #
 
     def parse_file(self, path: Path) -> list[ParsedRow]:
-        """Read + validate `path`. Raises ValueError for unusable files."""
-        suffix = path.suffix.lower()
-        if suffix == ".xlsx":
-            raw = self._read_xlsx(path)
-        elif suffix in (".csv", ".txt"):
-            raw = self._read_csv(path)
-        else:
-            raise ValueError(
-                f"Unsupported file type '{suffix}'. Use .xlsx or .csv."
-            )
-
+        """Read + validate a books `path`. Raises ValueError for unusable files."""
+        raw = self._read_any(path)
         if not raw:
             raise ValueError("The file is empty.")
 
-        col = self._map_headers(raw[0])
-        if "title" not in col or "author" not in col:
+        col = self._map_headers(raw[0], self._HEADER_ALIASES)
+        if "title" not in col:
             raise ValueError(
-                "The first row must contain at least 'Title' and 'Author' "
-                "column headers."
+                "The first row must contain at least a 'Title' column header."
             )
 
         rows: list[ParsedRow] = []
@@ -147,9 +187,12 @@ class ImportService:
         """
         cat_map = {c.name.lower(): c.id for c in self._categories.list_all()}
         lang_map = {l.name.lower(): l.id for l in self._languages.list_all()}
+        author_map = {a.name.lower(): a.id for a in self._authors.list_all()}
         created_cats: list[str] = []
         created_langs: list[str] = []
+        created_authors: list[str] = []
         added = 0
+        merged = 0
         errors: list[tuple[int, str]] = []
 
         for r in rows:
@@ -157,47 +200,122 @@ class ImportService:
                 errors.append((r.row_num, r.error or "Invalid row"))
                 continue
             try:
+                author_id = self._get_or_create(
+                    r.author, author_map, created_authors, self._authors
+                )
                 cat_id = self._get_or_create(
                     r.category, cat_map, created_cats, self._categories
                 )
                 lang_id = self._get_or_create(
                     r.language, lang_map, created_langs, self._languages
                 )
-                self._books.add(
-                    r.title, r.author, r.isbn, r.year,
+                # Same title + author + language as an existing book → add the
+                # copies to it instead of creating a duplicate record (also
+                # collapses repeated rows within the same file).
+                _book_id, was_merged = self._books.add_or_merge(
+                    r.title, author_id, r.isbn, r.year,
                     cat_id, lang_id, r.total_copies,
                 )
-                added += 1
+                if was_merged:
+                    merged += 1
+                else:
+                    added += 1
             except LibraryError as e:
                 errors.append((r.row_num, str(e)))
             except Exception as e:  # pragma: no cover - defensive
                 _log.exception("Unexpected error importing row %d", r.row_num)
                 errors.append((r.row_num, str(e)))
 
-        _log.info("Import finished: %d added, %d failed", added, len(errors))
-        return ImportResult(added, errors, created_cats, created_langs)
+        _log.info("Import finished: %d added, %d merged, %d failed",
+                  added, merged, len(errors))
+        return ImportResult(added, merged, errors, created_cats, created_langs,
+                            created_authors)
+
+    # ------------------------------------------------------------ members #
+
+    def parse_members_file(self, path: Path) -> list[ParsedMemberRow]:
+        """Read + validate a members spreadsheet (.xlsx or .csv)."""
+        raw = self._read_any(path)
+        if not raw:
+            raise ValueError("The file is empty.")
+        col = self._map_headers(raw[0], self._MEMBER_HEADER_ALIASES)
+        if "name" not in col:
+            raise ValueError(
+                "The first row must contain at least a 'Name' column header."
+            )
+        rows: list[ParsedMemberRow] = []
+        for line_no, raw_row in enumerate(raw[1:], start=2):
+            if self._is_blank(raw_row):
+                continue
+            name = self._cell(raw_row, col, "name")
+            rows.append(ParsedMemberRow(
+                row_num=line_no,
+                name=name,
+                email=self._cell(raw_row, col, "email") or None,
+                phone=self._cell(raw_row, col, "phone") or None,
+                error=None if name else "Missing Name",
+            ))
+        if not rows:
+            raise ValueError("No data rows found below the header.")
+        return rows
+
+    def import_members(self, rows: Sequence[ParsedMemberRow]) -> MemberImportResult:
+        """Insert valid member rows; best-effort with per-row error reporting."""
+        added = 0
+        errors: list[tuple[int, str]] = []
+        for r in rows:
+            if not r.is_valid:
+                errors.append((r.row_num, r.error or "Invalid row"))
+                continue
+            try:
+                self._members.add(r.name, r.email, r.phone)
+                added += 1
+            except LibraryError as e:
+                errors.append((r.row_num, str(e)))
+            except Exception as e:  # pragma: no cover - defensive
+                _log.exception("Unexpected error importing member row %d", r.row_num)
+                errors.append((r.row_num, str(e)))
+        _log.info("Member import finished: %d added, %d failed", added, len(errors))
+        return MemberImportResult(added, errors)
 
     # ------------------------------------------------------------ template #
 
     @classmethod
     def write_template(cls, path: Path) -> Path:
-        """Write a starter file (headers + two example rows). Returns the path
-        actually written (falls back to .csv if .xlsx is asked for without
-        openpyxl)."""
+        """Write a starter *books* file (headers + example rows)."""
+        return cls._write_template(path, cls.TEMPLATE_HEADERS,
+                                   cls._TEMPLATE_EXAMPLE, sheet="Books")
+
+    @classmethod
+    def write_members_template(cls, path: Path) -> Path:
+        """Write a starter *members* file (headers + example rows)."""
+        return cls._write_template(path, cls.MEMBER_TEMPLATE_HEADERS,
+                                   cls._MEMBER_TEMPLATE_EXAMPLE, sheet="Members")
+
+    @classmethod
+    def _write_template(
+        cls, path: Path, headers: Sequence[str],
+        example_rows: Sequence[Sequence], sheet: str = "Sheet1",
+    ) -> Path:
+        """Write headers + example rows. Returns the path actually written
+        (falls back to .csv if .xlsx is asked for without openpyxl)."""
         if path.suffix.lower() == ".xlsx":
-            written = cls._write_template_xlsx(path)
+            written = cls._write_template_xlsx(path, headers, example_rows, sheet)
             if written is not None:
                 return written
             path = path.with_suffix(".csv")  # degrade gracefully
         with path.open("w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
-            w.writerow(cls.TEMPLATE_HEADERS)
-            w.writerows(cls._TEMPLATE_EXAMPLE)
+            w.writerow(headers)
+            w.writerows(example_rows)
         _log.info("Import template written (CSV): %s", path)
         return path
 
     @classmethod
-    def _write_template_xlsx(cls, path: Path) -> Path | None:
+    def _write_template_xlsx(
+        cls, path: Path, headers: Sequence[str],
+        example_rows: Sequence[Sequence], sheet: str,
+    ) -> Path | None:
         try:
             from openpyxl import Workbook
             from openpyxl.styles import Alignment, Font, PatternFill
@@ -205,13 +323,13 @@ class ImportService:
             return None
         wb = Workbook()
         ws = wb.active
-        ws.title = "Books"
-        ws.append(list(cls.TEMPLATE_HEADERS))
+        ws.title = sheet[:31]
+        ws.append(list(headers))
         for cell in ws[1]:
             cell.font = Font(bold=True, color="FFFFFF")
             cell.fill = PatternFill("solid", fgColor="4F46E5")
             cell.alignment = Alignment(horizontal="center")
-        for row in cls._TEMPLATE_EXAMPLE:
+        for row in example_rows:
             ws.append(list(row))
         for col_cells in ws.columns:
             letter = col_cells[0].column_letter
@@ -229,7 +347,7 @@ class ImportService:
         name: str | None,
         name_map: dict[str, int],
         created: list[str],
-        service: CategoryService | LanguageService,
+        service,
     ) -> int | None:
         if not name:
             return None
@@ -241,57 +359,50 @@ class ImportService:
         created.append(name)
         return new_id
 
-    def _map_headers(self, header_row: Sequence) -> dict[str, int]:
+    @staticmethod
+    def _map_headers(
+        header_row: Sequence, aliases: dict[str, set[str]]
+    ) -> dict[str, int]:
         index: dict[str, int] = {}
         for col, raw in enumerate(header_row):
             if raw is None:
                 continue
             key = str(raw).strip().lower()
-            for canonical, aliases in self._HEADER_ALIASES.items():
-                if key in aliases and canonical not in index:
+            for canonical, names in aliases.items():
+                if key in names and canonical not in index:
                     index[canonical] = col
         return index
+
+    @staticmethod
+    def _cell(raw: Sequence, col: dict[str, int], field: str) -> str:
+        """Read a mapped column from a row as trimmed text ("" when absent)."""
+        idx = col.get(field)
+        if idx is None or idx >= len(raw):
+            return ""
+        v = raw[idx]
+        if v is None:
+            return ""
+        # Excel hands back whole numbers as floats (e.g. 1952.0); trim the .0.
+        if isinstance(v, float) and v.is_integer():
+            v = int(v)
+        return str(v).strip()
 
     def _parse_row(
         self, row_num: int, raw: Sequence, col: dict[str, int]
     ) -> ParsedRow:
-        def cell(field: str) -> str:
-            idx = col.get(field)
-            if idx is None or idx >= len(raw):
-                return ""
-            v = raw[idx]
-            if v is None:
-                return ""
-            # Excel hands back whole numbers as floats (e.g. 1952.0); trim.
-            if isinstance(v, float) and v.is_integer():
-                v = int(v)
-            return str(v).strip()
-
-        title = cell("title")
-        author = cell("author")
-        copies = self._parse_int(cell("copies"))
-        row = ParsedRow(
+        title = self._cell(raw, col, "title")
+        copies = self._parse_int(self._cell(raw, col, "copies"))
+        return ParsedRow(
             row_num=row_num,
             title=title,
-            author=author,
-            isbn=cell("isbn") or None,
-            year=self._parse_int(cell("year")),
-            category=cell("category") or None,
-            language=cell("language") or None,
+            author=self._cell(raw, col, "author"),
+            isbn=self._cell(raw, col, "isbn") or None,
+            year=self._parse_int(self._cell(raw, col, "year")),
+            category=self._cell(raw, col, "category") or None,
+            language=self._cell(raw, col, "language") or None,
             total_copies=copies if (copies and copies >= 1) else 1,
-            error=self._validate(title, author),
+            error=None if title else "Missing Title",
         )
-        return row
-
-    @staticmethod
-    def _validate(title: str, author: str) -> str | None:
-        if not title and not author:
-            return "Missing Title and Author"
-        if not title:
-            return "Missing Title"
-        if not author:
-            return "Missing Author"
-        return None
 
     @staticmethod
     def _parse_int(text: str) -> int | None:
@@ -311,6 +422,16 @@ class ImportService:
         return all(c is None or str(c).strip() == "" for c in raw_row)
 
     # ------------------------------------------------------------ readers #
+
+    @classmethod
+    def _read_any(cls, path: Path) -> list[list]:
+        """Read a spreadsheet to a list of rows, dispatching on the suffix."""
+        suffix = path.suffix.lower()
+        if suffix == ".xlsx":
+            return cls._read_xlsx(path)
+        if suffix in (".csv", ".txt"):
+            return cls._read_csv(path)
+        raise ValueError(f"Unsupported file type '{suffix}'. Use .xlsx or .csv.")
 
     @staticmethod
     def _read_xlsx(path: Path) -> list[list]:
