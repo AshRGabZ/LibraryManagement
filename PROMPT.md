@@ -8,6 +8,32 @@
 > first, then implement layer-by-layer (domain → data → services → ui), testing
 > each feature as it goes.
 
+## Recommended build model
+
+This application was built end-to-end with **Claude Code** (Anthropic's official
+CLI coding agent), using the **Claude Opus 4 family** (e.g. `claude-opus-4`).
+To reproduce it faithfully, use a frontier coding model with strong multi-file
+and long-context reasoning:
+
+| Goal | Model | Notes |
+|---|---|---|
+| **Best quality** (recommended) | **Claude Opus 4.x** (`claude-opus-4-…`) | Handles the full layered architecture, idempotent migrations, and cross-platform edge cases in one pass. |
+| **Faster / lower cost** | Claude Sonnet 4.x (`claude-sonnet-4-…`) | Great for most of the build; may need a few more iterations on the trickier UI widgets. |
+| **Quick edits only** | Claude Haiku 4.x | Not recommended for the initial build of a project this size. |
+
+Practical guidance for the build session:
+- Use an **agentic coding tool** (Claude Code, or any IDE assistant that can
+  read/write files and run commands) — not a single chat turn. The app is
+  ~25–40 files across the layers below.
+- Work **iteratively**: scaffold the tree, then implement domain → data →
+  services → ui, and **test each feature** (headless/script-level where possible)
+  before moving on.
+- Keep the **whole spec in context**; implement the cross-platform robustness
+  rules (Windows emoji/strftime, macOS Tk ≥ 8.6, dialog screen-clamping) as you
+  build the relevant pieces, not as an afterthought.
+
+---
+
 ```text
 ROLE
 You are a senior Python desktop-application architect. Build a complete,
