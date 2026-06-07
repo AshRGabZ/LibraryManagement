@@ -4,7 +4,12 @@ from datetime import date, timedelta
 
 from ..config import DEFAULT_LOAN_DAYS, DEFAULT_RENEW_DAYS, MAX_RENEWALS
 from ..data import Database
-from ..data.repositories import BookCopyRepository, BookRepository, LoanRepository
+from ..data.repositories import (
+    BookCopyRepository,
+    BookRepository,
+    LoanRepository,
+    MemberRepository,
+)
 from ..domain import Loan, LoanWithDetails
 from ..domain.book_copy import STATUS_AVAILABLE, STATUS_BORROWED
 from ..exceptions import (
@@ -145,6 +150,57 @@ class LoanService:
             new_due = base + timedelta(days=extra_days)
             loan_repo.extend_due(loan_id, new_due.isoformat())
             return new_due
+
+    # ------------------------------------------------------- edit / delete #
+
+    def delete(self, loan_id: int) -> None:
+        """Remove a loan (e.g. created by mistake).
+
+        If the loan is still **active**, its physical copy is released back to
+        available first — otherwise the book would be stuck showing 'borrowed'
+        with no loan behind it. A returned loan just has its record removed
+        (the copy was already freed on return).
+        """
+        with self._db.transaction() as conn:
+            loan_repo = LoanRepository(conn)
+            loan = loan_repo.get(loan_id)
+            if loan is None:
+                raise NotFoundError(f"Loan #{loan_id} not found.")
+            if not loan.is_returned:
+                if loan.copy_id is not None:
+                    BookCopyRepository(conn).set_status(
+                        loan.copy_id, STATUS_AVAILABLE
+                    )
+                BookRepository(conn).adjust_available(loan.book_id, +1)
+            loan_repo.delete(loan_id)
+
+    def update(
+        self,
+        loan_id: int,
+        member_id: int,
+        borrowed_on: date,
+        due_on: date,
+    ) -> None:
+        """Correct a loan's member and/or dates (entered by mistake).
+
+        Book and copy are left unchanged — to fix a wrong *book*, delete the
+        loan and borrow again. Availability accounting is unaffected: the same
+        copy stays bound, only the borrower/dates change.
+        """
+        if borrowed_on > date.today():
+            raise ValidationError("Borrowed date cannot be in the future.")
+        if due_on < borrowed_on:
+            raise ValidationError("Due date cannot be before the borrowed date.")
+        with self._db.transaction() as conn:
+            loan_repo = LoanRepository(conn)
+            if loan_repo.get(loan_id) is None:
+                raise NotFoundError(f"Loan #{loan_id} not found.")
+            if MemberRepository(conn).get(member_id) is None:
+                raise ValidationError("Selected member no longer exists.")
+            loan_repo.update(
+                loan_id, member_id,
+                borrowed_on.isoformat(), due_on.isoformat(),
+            )
 
     # ------------------------------------------------------------- reads  #
 

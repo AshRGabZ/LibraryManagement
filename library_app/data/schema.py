@@ -49,7 +49,10 @@ CREATE TABLE IF NOT EXISTS members (
     name TEXT NOT NULL,
     email TEXT UNIQUE,
     phone TEXT,
-    joined TEXT DEFAULT (DATE('now'))
+    joined TEXT DEFAULT (DATE('now')),
+    -- Soft-delete marker: NULL = active, a date string = archived ("deleted").
+    -- Archiving keeps the row (and its loan history) intact and reversible.
+    archived_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS loans (
@@ -239,3 +242,8 @@ def apply_migrations(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE books DROP COLUMN author")
         _log.info("Migrated %d distinct author name(s) into authors table",
                   len(legacy))
+
+    # 010 — soft-delete for members. archived_at NULL = active; a date string
+    # marks the member "deleted" (archived) while keeping the row + loan history.
+    if not _column_exists(conn, "members", "archived_at"):
+        conn.execute("ALTER TABLE members ADD COLUMN archived_at TEXT")

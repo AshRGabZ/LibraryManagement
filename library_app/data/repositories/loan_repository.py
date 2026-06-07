@@ -37,6 +37,18 @@ class LoanRepository:
             (new_due_on, loan_id),
         )
 
+    def update(
+        self, loan_id: int, member_id: int, borrowed_on: str, due_on: str
+    ) -> None:
+        """Correct a loan's member and dates (book/copy left unchanged)."""
+        self._conn.execute(
+            "UPDATE loans SET member_id=?, borrowed_on=?, due_on=? WHERE id=?",
+            (member_id, borrowed_on, due_on, loan_id),
+        )
+
+    def delete(self, loan_id: int) -> None:
+        self._conn.execute("DELETE FROM loans WHERE id=?", (loan_id,))
+
     def get(self, loan_id: int) -> Loan | None:
         row = self._conn.execute(
             "SELECT * FROM loans WHERE id=?", (loan_id,)

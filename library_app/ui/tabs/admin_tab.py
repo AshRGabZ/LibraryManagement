@@ -256,8 +256,16 @@ class AdminTab(ttk.Frame):
         ttk.Entry(sr, textvariable=self.member_search_var, width=30,
                   font=base_font()).pack(side="left")
 
+        # Toggle between active members and archived ("deleted") ones.
+        self.member_show_archived_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            sr, text="🗄  Show archived (deleted)",
+            variable=self.member_show_archived_var,
+            command=self._on_member_view_changed,
+        ).pack(side="left", padx=(14, 0))
+
         # "extended" selection so several members can be selected (Ctrl/Shift-
-        # click) and deleted in one go.
+        # click) and archived/restored in one go.
         container, self.members_tree = build_treeview(mf, [
             ("id", "ID", 60, "center"),
             ("name", "Name", 200, "w"),
@@ -275,8 +283,15 @@ class AdminTab(ttk.Frame):
                    command=self._import_members).pack(side="left", padx=4)
         ttk.Button(br, text="✏ Edit", style="Primary.TButton",
                    command=self._edit_member).pack(side="left", padx=4)
-        ttk.Button(br, text="🗑 Delete", style="Danger.TButton",
-                   command=self._delete_member).pack(side="left", padx=4)
+        # Delete (active view) and Restore (archived view) are mutually
+        # exclusive — only the one relevant to the current view is shown.
+        self._member_delete_btn = ttk.Button(
+            br, text="🗑 Delete", style="Danger.TButton",
+            command=self._delete_member)
+        self._member_restore_btn = ttk.Button(
+            br, text="♻ Restore", style="Success.TButton",
+            command=self._restore_members)
+        self._update_member_action_buttons()
 
         container.pack(fill="both", expand=True)
         self.members_tree.bind("<Double-1>", lambda e: self._edit_member())
@@ -553,39 +568,45 @@ class AdminTab(ttk.Frame):
         except LibraryError as e:
             messagebox.showerror("Error", str(e))
 
+    def _selected_members(self) -> list[tuple[int, str]]:
+        """(id, name) for each selected member row."""
+        return [
+            (int(self.members_tree.item(s)["values"][0]),
+             str(self.members_tree.item(s)["values"][1]))
+            for s in self.members_tree.selection()
+        ]
+
     def _delete_member(self) -> None:
-        sel = self.members_tree.selection()
-        if not sel:
+        """Soft-delete (archive) the selected members. Their loan history is
+        kept and they can be brought back with Restore."""
+        members = self._selected_members()
+        if not members:
             messagebox.showinfo("Select a member",
                                 "Please select one or more members first.")
             return
 
-        # (id, name) for each selected row.
-        members = [
-            (int(self.members_tree.item(s)["values"][0]),
-             str(self.members_tree.item(s)["values"][1]))
-            for s in sel
-        ]
-
         if len(members) == 1:
-            prompt = f"Delete '{members[0][1]}'?"
+            prompt = (f"Delete '{members[0][1]}'?\n\n"
+                      "They are archived (their loan history is kept) and can "
+                      "be restored later via “Show archived”.")
         else:
             preview = "\n".join(f"  • {name}" for _, name in members[:10])
             if len(members) > 10:
                 preview += f"\n  …and {len(members) - 10} more"
             prompt = (f"Delete these {len(members)} members?\n\n{preview}\n\n"
-                      "This cannot be undone.")
+                      "They are archived (loan history kept) and can be restored "
+                      "later.")
         if not messagebox.askyesno("Confirm delete", prompt):
             return
 
-        # Delete each independently so one blocked member (active loans)
+        # Archive each independently so one blocked member (active loans)
         # doesn't abort the batch; collect failures and report them together.
-        deleted = 0
+        done = 0
         failures: list[tuple[str, str]] = []
         for member_id, name in members:
             try:
-                self._services.members.delete(member_id)
-                deleted += 1
+                self._services.members.archive(member_id)
+                done += 1
             except LibraryError as e:
                 failures.append((name, str(e)))
 
@@ -594,13 +615,45 @@ class AdminTab(ttk.Frame):
 
         if failures:
             lines: list[str] = []
-            if deleted:
-                lines.append(f"Deleted {deleted} member(s).")
+            if done:
+                lines.append(f"Deleted {done} member(s).")
             lines.append(f"{len(failures)} could not be deleted:")
             lines.extend(f"  • {name}: {msg}" for name, msg in failures[:10])
             if len(failures) > 10:
                 lines.append(f"  …and {len(failures) - 10} more.")
             messagebox.showwarning("Some members not deleted", "\n".join(lines))
+
+    def _on_member_view_changed(self) -> None:
+        """Toggle active ↔ archived view: swap Delete/Restore and reload."""
+        self._update_member_action_buttons()
+        self._refresh_members()
+
+    def _update_member_action_buttons(self) -> None:
+        """Show Restore only in the archived view, Delete only in the active
+        view (the other has no purpose there)."""
+        if self.member_show_archived_var.get():
+            self._member_delete_btn.pack_forget()
+            self._member_restore_btn.pack(side="left", padx=4)
+        else:
+            self._member_restore_btn.pack_forget()
+            self._member_delete_btn.pack(side="left", padx=4)
+
+    def _restore_members(self) -> None:
+        """Revive the selected archived members."""
+        members = self._selected_members()
+        if not members:
+            messagebox.showinfo(
+                "Select a member",
+                "Tick “Show archived (deleted)”, select one or more members, "
+                "then Restore.")
+            return
+        for member_id, _name in members:
+            try:
+                self._services.members.restore(member_id)
+            except LibraryError as e:
+                messagebox.showerror("Could not restore", str(e))
+        self._refresh_members()
+        self.on_change()
 
     # --------------------------------------------------------------- refresh #
     # Per-section refreshes: each search bar updates only its own tree so
@@ -653,10 +706,14 @@ class AdminTab(ttk.Frame):
         for r in self.members_tree.get_children():
             self.members_tree.delete(r)
         search = self.member_search_var.get() if hasattr(self, "member_search_var") else ""
+        show_archived = (self.member_show_archived_var.get()
+                         if hasattr(self, "member_show_archived_var") else False)
+        if show_archived:
+            members = self._services.members.list_archived(search)
+        else:
+            members = self._services.members.list_all(search)
         # Always ordered by ID in the admin management table.
-        members = sorted(self._services.members.list_all(search),
-                         key=lambda m: m.id)
-        for i, m in enumerate(members):
+        for i, m in enumerate(sorted(members, key=lambda m: m.id)):
             tag = "even" if i % 2 else "odd"
             self.members_tree.insert(
                 "", "end",

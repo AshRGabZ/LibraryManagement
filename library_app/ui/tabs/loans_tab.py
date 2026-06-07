@@ -9,7 +9,7 @@ from typing import Callable
 from ...domain import LoanWithDetails
 from ...exceptions import LibraryError
 from ...services import Services
-from ..dialogs import BorrowDialog, RenewDialog
+from ..dialogs import BorrowDialog, EditLoanDialog, RenewDialog
 from ..theme import Palette, base_font, heading_font, small_font
 from ..widgets import DateEntry, TabHeader, TreeviewSorter, build_treeview
 
@@ -95,6 +95,10 @@ class LoansTab(ttk.Frame):
                    command=self.renew_loan).pack(side="right", padx=4)
         ttk.Button(toolbar, text="↩  Return", style="Primary.TButton",
                    command=self.return_book).pack(side="right", padx=4)
+        ttk.Button(toolbar, text="✏  Edit", style="Neutral.TButton",
+                   command=self.edit_loan).pack(side="right", padx=4)
+        ttk.Button(toolbar, text="🗑  Delete", style="Danger.TButton",
+                   command=self.delete_loan).pack(side="right", padx=4)
         ttk.Button(toolbar, text="💬  WhatsApp", style="Whatsapp.TButton",
                    command=self.notify_whatsapp).pack(side="right", padx=4)
         ttk.Button(toolbar, text="↻  Refresh", style="Neutral.TButton",
@@ -365,6 +369,39 @@ class LoansTab(ttk.Frame):
             return
         RenewDialog(self.winfo_toplevel(), self._services, lid,
                     on_success=self._after_change)
+
+    def edit_loan(self) -> None:
+        """Correct a loan entered by mistake (member / dates)."""
+        lid = self._selected_loan_id()
+        if lid is None:
+            return
+        EditLoanDialog(self.winfo_toplevel(), self._services, lid,
+                       on_success=self._after_change)
+
+    def delete_loan(self) -> None:
+        """Delete a loan created by mistake (releases the copy if active)."""
+        lid = self._selected_loan_id()
+        if lid is None:
+            return
+        loan = self._services.loans.get(lid)
+        if loan is None:
+            return
+        if loan.is_returned:
+            msg = (f"Delete this returned loan from the history?\n\n"
+                   f"📚  {loan.book_title}\n👤  {loan.member_name}\n\n"
+                   "This cannot be undone.")
+        else:
+            msg = (f"Delete this active loan?\n\n"
+                   f"📚  {loan.book_title}  (copy {loan.serial_number or '—'})\n"
+                   f"👤  {loan.member_name}\n\n"
+                   "The copy will be returned to available. This cannot be undone.")
+        if not messagebox.askyesno("Delete loan", msg):
+            return
+        try:
+            self._services.loans.delete(lid)
+            self._after_change()
+        except LibraryError as e:
+            messagebox.showerror("Error", str(e))
 
     def notify_whatsapp(self) -> None:
         """Open WhatsApp pre-filled with this member's outstanding loans."""

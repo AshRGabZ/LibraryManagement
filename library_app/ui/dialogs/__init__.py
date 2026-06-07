@@ -2,6 +2,7 @@
 
 from .book_dialog import BookDialog
 from .borrow_dialog import BorrowDialog
+from .edit_loan_dialog import EditLoanDialog
 from .import_books_dialog import ImportBooksDialog
 from .import_members_dialog import ImportMembersDialog
 from .label_preview_dialog import LabelPreviewDialog
@@ -11,6 +12,7 @@ from .renew_dialog import RenewDialog
 __all__ = [
     "BookDialog",
     "BorrowDialog",
+    "EditLoanDialog",
     "ImportBooksDialog",
     "ImportMembersDialog",
     "LabelPreviewDialog",

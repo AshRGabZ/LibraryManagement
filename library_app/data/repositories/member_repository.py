@@ -24,29 +24,58 @@ class MemberRepository:
             (name, email, phone, member_id),
         )
 
+    def archive(self, member_id: int, when: str) -> None:
+        """Soft-delete: mark archived (row + loan history are kept)."""
+        self._conn.execute(
+            "UPDATE members SET archived_at=? WHERE id=?", (when, member_id)
+        )
+
+    def restore(self, member_id: int) -> None:
+        """Un-archive a previously soft-deleted member."""
+        self._conn.execute(
+            "UPDATE members SET archived_at=NULL WHERE id=?", (member_id,)
+        )
+
     def delete(self, member_id: int) -> None:
+        """Hard delete — permanently removes the member AND their loan history.
+        Kept for an explicit "delete permanently" path; normal deletion archives."""
         self._conn.execute("DELETE FROM loans WHERE member_id=?", (member_id,))
         self._conn.execute("DELETE FROM members WHERE id=?", (member_id,))
 
     def get(self, member_id: int) -> Member | None:
+        # Returns the member regardless of archived state — needed for loan
+        # display, restore, and lookups.
         row = self._conn.execute(
             "SELECT * FROM members WHERE id=?", (member_id,)
         ).fetchone()
         return Member.from_row(row) if row else None
 
-    def list_all(self, search: str = "") -> list[Member]:
+    def list_all(
+        self, search: str = "", include_archived: bool = False
+    ) -> list[Member]:
+        """Active members by default; pass include_archived=True for all."""
+        return self._list(search, archived=None if include_archived else False)
+
+    def list_archived(self, search: str = "") -> list[Member]:
+        """Only archived ("deleted") members."""
+        return self._list(search, archived=True)
+
+    def _list(self, search: str, *, archived: bool | None) -> list[Member]:
+        where: list[str] = []
+        params: list = []
+        if archived is True:
+            where.append("archived_at IS NOT NULL")
+        elif archived is False:
+            where.append("archived_at IS NULL")
         if search:
             like = f"%{search}%"
-            rows = self._conn.execute(
-                """SELECT * FROM members
-                   WHERE name LIKE ? OR email LIKE ? OR phone LIKE ?
-                   ORDER BY name""",
-                (like, like, like),
-            ).fetchall()
-        else:
-            rows = self._conn.execute(
-                "SELECT * FROM members ORDER BY name"
-            ).fetchall()
+            where.append("(name LIKE ? OR email LIKE ? OR phone LIKE ?)")
+            params.extend([like, like, like])
+        sql = "SELECT * FROM members"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY name"
+        rows = self._conn.execute(sql, params).fetchall()
         return [Member.from_row(r) for r in rows]
 
     def has_active_loans(self, member_id: int) -> int:

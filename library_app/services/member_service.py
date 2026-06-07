@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from datetime import date
 
 from ..data import Database
 from ..data.repositories import MemberRepository
@@ -141,7 +142,34 @@ class MemberService:
             )
         raise e
 
+    def archive(self, member_id: int) -> None:
+        """Soft-delete ("delete") a member: hide them but keep the record and
+        their loan history, reversible via restore(). Blocked while the member
+        still has books out, so deleting never strands an active loan."""
+        with self._db.transaction() as conn:
+            repo = MemberRepository(conn)
+            member = repo.get(member_id)
+            if member is None:
+                raise NotFoundError(f"Member #{member_id} not found.")
+            active = repo.has_active_loans(member_id)
+            if active > 0:
+                raise ActiveLoansError(
+                    f"This member has {active} active loan(s). "
+                    "Please ensure all books are returned first."
+                )
+            repo.archive(member_id, date.today().isoformat())
+
+    def restore(self, member_id: int) -> None:
+        """Revive a previously archived ("deleted") member."""
+        with self._db.transaction() as conn:
+            repo = MemberRepository(conn)
+            if repo.get(member_id) is None:
+                raise NotFoundError(f"Member #{member_id} not found.")
+            repo.restore(member_id)
+
     def delete(self, member_id: int) -> None:
+        """Permanently delete a member AND their loan history. Not used by the
+        normal UI (which archives); kept for an explicit hard-delete path."""
         with self._db.transaction() as conn:
             repo = MemberRepository(conn)
             member = repo.get(member_id)
@@ -158,5 +186,10 @@ class MemberService:
     def get(self, member_id: int) -> Member | None:
         return MemberRepository(self._db.connection).get(member_id)
 
-    def list_all(self, search: str = "") -> list[Member]:
-        return MemberRepository(self._db.connection).list_all(search)
+    def list_all(self, search: str = "", include_archived: bool = False) -> list[Member]:
+        return MemberRepository(self._db.connection).list_all(
+            search, include_archived=include_archived
+        )
+
+    def list_archived(self, search: str = "") -> list[Member]:
+        return MemberRepository(self._db.connection).list_archived(search)
