@@ -15,6 +15,13 @@ class LanguageRepository:
         )
         return cur.lastrowid
 
+    def update(self, language_id: int, name: str) -> None:
+        """Rename a language. Books referencing this language_id instantly
+        reflect the new name (read via JOIN, not stored on books)."""
+        self._conn.execute(
+            "UPDATE languages SET name=? WHERE id=?", (name, language_id)
+        )
+
     def get(self, language_id: int) -> Language | None:
         row = self._conn.execute(
             "SELECT * FROM languages WHERE id=?", (language_id,)

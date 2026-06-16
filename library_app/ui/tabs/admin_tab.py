@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, simpledialog, ttk
 from typing import Callable
 
 from ...exceptions import LibraryError
@@ -162,6 +162,8 @@ class AdminTab(ttk.Frame):
         self.cat_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(ci, text="➕ Add", style="Success.TButton",
                    command=self._add_category).pack(side="left", padx=(0, 4))
+        ttk.Button(ci, text="✏ Edit", style="Primary.TButton",
+                   command=self._edit_category).pack(side="left", padx=(0, 4))
         ttk.Button(ci, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_category).pack(side="left")
 
@@ -196,6 +198,8 @@ class AdminTab(ttk.Frame):
         self.lang_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(li, text="➕ Add", style="Success.TButton",
                    command=self._add_language).pack(side="left", padx=(0, 4))
+        ttk.Button(li, text="✏ Edit", style="Primary.TButton",
+                   command=self._edit_language).pack(side="left", padx=(0, 4))
         ttk.Button(li, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_language).pack(side="left")
 
@@ -230,6 +234,8 @@ class AdminTab(ttk.Frame):
         self.author_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(ai, text="➕ Add", style="Success.TButton",
                    command=self._add_author).pack(side="left", padx=(0, 4))
+        ttk.Button(ai, text="✏ Edit", style="Primary.TButton",
+                   command=self._edit_author).pack(side="left", padx=(0, 4))
         ttk.Button(ai, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_author).pack(side="left")
 
@@ -447,6 +453,31 @@ class AdminTab(ttk.Frame):
         except LibraryError as e:
             messagebox.showerror("Error", str(e))
 
+    def _edit_category(self) -> None:
+        """Rename the selected category — every book in it updates automatically."""
+        sel = self.cat_tree.selection()
+        if not sel:
+            messagebox.showinfo("Select a category",
+                                "Please select a category to rename.")
+            return
+        cat_id = int(self.cat_tree.item(sel[0])["values"][0])
+        cat = self._services.categories.get(cat_id)
+        if cat is None:
+            return
+        new_name = simpledialog.askstring(
+            "Rename category",
+            "New category name — all books in it will show it:",
+            initialvalue=cat.name, parent=self.winfo_toplevel(),
+        )
+        if new_name is None or new_name.strip() == cat.name:
+            return
+        try:
+            self._services.categories.rename(cat_id, new_name.strip())
+            self.refresh()
+            self.on_change()
+        except LibraryError as e:
+            messagebox.showerror("Error", str(e))
+
     def _delete_category(self) -> None:
         sel = self.cat_tree.selection()
         if not sel:
@@ -477,6 +508,33 @@ class AdminTab(ttk.Frame):
         except LibraryError as e:
             messagebox.showerror("Error", str(e))
 
+    def _edit_author(self) -> None:
+        """Rename the selected author — every book by them updates automatically
+        (books reference the author by id, not by stored name)."""
+        sel = self.author_tree.selection()
+        if not sel:
+            messagebox.showinfo("Select an author",
+                                "Please select an author to rename.")
+            return
+        author_id = int(self.author_tree.item(sel[0])["values"][0])
+        author = self._services.authors.get(author_id)
+        if author is None:
+            return
+        new_name = simpledialog.askstring(
+            "Rename author",
+            "New author name — all books by this author will show it:",
+            initialvalue=author.name,
+            parent=self.winfo_toplevel(),
+        )
+        if new_name is None or new_name.strip() == author.name:
+            return
+        try:
+            self._services.authors.rename(author_id, new_name.strip())
+            self.refresh()
+            self.on_change()
+        except LibraryError as e:
+            messagebox.showerror("Error", str(e))
+
     def _delete_author(self) -> None:
         sel = self.author_tree.selection()
         if not sel:
@@ -502,6 +560,31 @@ class AdminTab(ttk.Frame):
         try:
             self._services.languages.add(name)
             self.lang_entry.delete(0, "end")
+            self.refresh()
+            self.on_change()
+        except LibraryError as e:
+            messagebox.showerror("Error", str(e))
+
+    def _edit_language(self) -> None:
+        """Rename the selected language — every book in it updates automatically."""
+        sel = self.lang_tree.selection()
+        if not sel:
+            messagebox.showinfo("Select a language",
+                                "Please select a language to rename.")
+            return
+        lang_id = int(self.lang_tree.item(sel[0])["values"][0])
+        lang = self._services.languages.get(lang_id)
+        if lang is None:
+            return
+        new_name = simpledialog.askstring(
+            "Rename language",
+            "New language name — all books in it will show it:",
+            initialvalue=lang.name, parent=self.winfo_toplevel(),
+        )
+        if new_name is None or new_name.strip() == lang.name:
+            return
+        try:
+            self._services.languages.rename(lang_id, new_name.strip())
             self.refresh()
             self.on_change()
         except LibraryError as e:

@@ -17,6 +17,13 @@ class AuthorRepository:
         )
         return cur.lastrowid
 
+    def update(self, author_id: int, name: str) -> None:
+        """Rename an author. Every book referencing this author_id instantly
+        reflects the new name (the name is read via JOIN, not stored on books)."""
+        self._conn.execute(
+            "UPDATE authors SET name=? WHERE id=?", (name, author_id)
+        )
+
     def get(self, author_id: int) -> Author | None:
         row = self._conn.execute(
             "SELECT * FROM authors WHERE id=?", (author_id,)

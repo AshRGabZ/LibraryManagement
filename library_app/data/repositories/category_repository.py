@@ -17,6 +17,13 @@ class CategoryRepository:
         )
         return cur.lastrowid
 
+    def update(self, category_id: int, name: str) -> None:
+        """Rename a category. Books referencing this category_id instantly
+        reflect the new name (read via JOIN, not stored on books)."""
+        self._conn.execute(
+            "UPDATE categories SET name=? WHERE id=?", (name, category_id)
+        )
+
     def get(self, category_id: int) -> Category | None:
         row = self._conn.execute(
             "SELECT * FROM categories WHERE id=?", (category_id,)
