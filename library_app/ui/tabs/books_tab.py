@@ -117,6 +117,8 @@ class BooksTab(ttk.Frame):
                    command=self.export_books).pack(side="right", padx=4)
         ttk.Button(toolbar, text="🏷️  Label", style="Purple.TButton",
                    command=self.view_label).pack(side="right", padx=4)
+        ttk.Button(toolbar, text="🏷️  All Labels", style="Purple.TButton",
+                   command=self.download_all_labels).pack(side="right", padx=4)
 
         # ── Treeview ─────────────────────────────────────────────────────────
         container, self.tree = build_treeview(self, self.COLUMNS)
@@ -274,17 +276,79 @@ class BooksTab(ttk.Frame):
         if copy is None:
             return
         book = self._services.books.get(copy.book_id)
-        category_name = None
-        if book and book.category_id:
-            cat = self._services.categories.get(book.category_id)
-            category_name = cat.name if cat else None
+        title = book.title if book else None
+        category_name = author_name = None
+        if book:
+            if book.category_id:
+                cat = self._services.categories.get(book.category_id)
+                category_name = cat.name if cat else None
+            if book.author_id:
+                a = self._services.authors.get(book.author_id)
+                author_name = a.name if a else None
 
         from ..dialogs import LabelPreviewDialog
         LabelPreviewDialog(
             self.winfo_toplevel(), self._services,
             serial_number=copy.serial_number,
-            category_name=category_name,
+            title=title, author=author_name, category_name=category_name,
         )
+
+    def download_all_labels(self) -> None:
+        """One PDF with a label for every copy of the currently-filtered books
+        (8–9 per page, print & cut). Respects the search/category/language
+        filters, so you can do the whole catalogue or just a subset."""
+        cat_id = self._resolve_id(
+            self.category_filter_var.get(),
+            self._services.categories.list_all(),
+        )
+        lang_id = self._resolve_id(
+            self.language_filter_var.get(),
+            self._services.languages.list_all(),
+        )
+        books = self._services.books.list_with_details(
+            search=self.search_var.get(),
+            category_id=cat_id, language_id=lang_id,
+        )
+        if not books:
+            messagebox.showinfo("Nothing to label",
+                                "No books match the current filters.")
+            return
+        # One label per physical copy.
+        items: list[tuple] = []
+        for b in books:
+            for c in self._services.books.list_copies(b.id):
+                items.append((c.serial_number, b.title,
+                              b.author_name or "", b.category_name or ""))
+        if not items:
+            messagebox.showinfo("Nothing to label",
+                                "These books have no copies to label.")
+            return
+
+        default = f"labels_{date.today().isoformat()}.pdf"
+        path_str = filedialog.asksaveasfilename(
+            parent=self.winfo_toplevel(),
+            title="Download All Labels",
+            defaultextension=".pdf",
+            initialfile=default,
+            filetypes=[("PDF document", "*.pdf")],
+        )
+        if not path_str:
+            return
+        try:
+            written = self._services.label.render_sheet_pdf(
+                Path(path_str), items)
+            _log.info("Bulk labels: %d labels / %d books → %s",
+                      len(items), len(books), written)
+            messagebox.showinfo(
+                "Labels ready",
+                f"Saved {len(items)} label(s) across {len(books)} "
+                f"book(s) to:\n{written}",
+            )
+        except ImportError as e:
+            messagebox.showerror("Pillow required", str(e))
+        except Exception as e:  # pragma: no cover - filesystem/render failure
+            _log.exception("Bulk label generation failed")
+            messagebox.showerror("Could not create labels", str(e))
 
     # ─────────────────────────────────────────── refresh ──
 

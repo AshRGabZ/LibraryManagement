@@ -62,6 +62,7 @@ echo "==> Building ${APP_NAME}.app…"
     --windowed \
     --name "$APP_NAME" \
     --osx-bundle-identifier "com.ghcc.library" \
+    --add-data "library_app/assets:library_app/assets" \
     "$ENTRY"
 
 echo

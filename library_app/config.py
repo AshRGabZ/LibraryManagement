@@ -59,6 +59,10 @@ WINDOW_TITLE: str = "📚 GHCC Library Management"
 WINDOW_GEOMETRY: str = "1280x720"
 WINDOW_MIN_SIZE: tuple[int, int] = (1000, 600)
 
+# Name printed on the header of every book label. Change this for a different
+# branch/branding.
+LIBRARY_NAME: str = "GHCC Pune Library"
+
 
 # ---------------------------------------------------------- notifications -- #
 

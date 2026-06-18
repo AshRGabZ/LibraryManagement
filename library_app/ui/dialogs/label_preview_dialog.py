@@ -34,7 +34,9 @@ class LabelPreviewDialog(tk.Toplevel):
         services: Services,
         *,
         serial_number: str,
-        category_name: str | None,
+        title: str | None = None,
+        author: str | None = None,
+        category_name: str | None = None,
     ) -> None:
         super().__init__(parent)
         self._services = services
@@ -49,7 +51,8 @@ class LabelPreviewDialog(tk.Toplevel):
         # Render the full-DPI image once — Download uses this directly so
         # there's no resolution loss between preview and saved file.
         try:
-            self._image = services.label.render(serial_number, category_name)
+            self._image = services.label.render(
+                serial_number, title, author, category_name)
         except ImportError as e:
             messagebox.showerror(
                 "Pillow not installed",

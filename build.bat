@@ -35,7 +35,7 @@ if exist dist rmdir /s /q dist
 if exist "%APP_NAME%.spec" del /q "%APP_NAME%.spec"
 
 echo ==^> Building "%APP_NAME%.exe"...
-"%PYTHON%" -m PyInstaller --noconfirm --windowed --onefile --name "%APP_NAME%" "%ENTRY%"
+"%PYTHON%" -m PyInstaller --noconfirm --windowed --onefile --name "%APP_NAME%" --add-data "library_app\assets;library_app\assets" "%ENTRY%"
 if errorlevel 1 ( echo. & echo Build failed. & pause & exit /b 1 )
 
 echo.
