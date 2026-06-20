@@ -92,10 +92,13 @@ class LabelStyle:
     serial_pt: int = 82
     field_pt: int = 44
 
-    # Background watermark (the library bookplate logo). Opacity is kept low so
-    # text stays crisp on top; set to 0 to disable. The image is looked up at
+    # The library bookplate logo is printed crisply across the TOP of the label
+    # (falls back to a text header band if no logo file is found). Sized as a
+    # fraction of the label width, capped to a fraction of the height so the
+    # text fields below always have room. Looked up at
     # library_app/assets/label_logo.png (or the LIBRARY_LABEL_LOGO env path).
-    watermark_opacity: float = 0.28
+    logo_width_frac: float = 0.86
+    logo_max_height_frac: float = 0.46
 
 
 class LabelService:
@@ -103,7 +106,7 @@ class LabelService:
 
     def __init__(self, style: LabelStyle | None = None) -> None:
         self._style = style or LabelStyle()
-        self._wm_cache = None   # lazily-prepared watermark, or False if none
+        self._logo_cache = None   # lazily-prepared header logo, or False if none
 
     # --------------------------------------------------------- logo / wm #
 
@@ -129,41 +132,31 @@ class LabelService:
                 return c
         return None
 
-    def _watermark(self):
-        """Return the faded, pre-sized watermark image (cached), or None."""
-        if self._wm_cache is not None:
-            return self._wm_cache or None
-        if self._style.watermark_opacity <= 0:
-            self._wm_cache = False
-            return None
+    def _header_logo(self):
+        """Return the crisp, pre-sized header logo (cached), or None."""
+        if self._logo_cache is not None:
+            return self._logo_cache or None
         path = self._logo_path()
         if path is None:
-            self._wm_cache = False
+            self._logo_cache = False
             return None
         try:
             from PIL import Image
             logo = Image.open(path).convert("RGBA")
         except Exception:  # pragma: no cover - bad/corrupt image
             _log.warning("Could not load label logo: %s", path)
-            self._wm_cache = False
+            self._logo_cache = False
             return None
 
         w, h = self._pixel_dims()
-        header_h = int(h * 0.16)
-        body_h = h - header_h - 14
-        tw = int(w * 0.84)
+        tw = int(w * self._style.logo_width_frac)
         th = int(logo.height * (tw / logo.width))
-        max_h = int(body_h * 0.94)
+        max_h = int(h * self._style.logo_max_height_frac)
         if th > max_h:
             th = max_h
             tw = int(logo.width * (th / logo.height))
-        logo = logo.resize((tw, th), Image.LANCZOS)
-        faded = logo.split()[3].point(
-            lambda a: int(a * self._style.watermark_opacity)
-        )
-        logo.putalpha(faded)
-        self._wm_cache = logo
-        return logo
+        self._logo_cache = logo.resize((tw, th), Image.LANCZOS)
+        return self._logo_cache
 
     # --------------------------------------------------------- dims helper #
 
@@ -199,26 +192,11 @@ class LabelService:
         s = self._style
         w, h = self._pixel_dims()
         img = Image.new("RGB", (w, h), s.bg)
+        draw = ImageDraw.Draw(img)
 
         border_pad = 7
         inner_left = border_pad + 30
         max_w = w - inner_left - (border_pad + 24)   # usable text width
-        header_h = int(h * 0.16)
-
-        # ---- Background watermark (library bookplate logo) --------------
-        # Pasted first, faded, centred in the body — text is drawn opaque on
-        # top, so nothing is lost. Skipped silently if no logo file is present.
-        wm = self._watermark()
-        if wm is not None:
-            body_top = border_pad + header_h
-            body_h = (h - border_pad) - body_top
-            img.paste(
-                wm,
-                ((w - wm.width) // 2, body_top + (body_h - wm.height) // 2),
-                wm,
-            )
-
-        draw = ImageDraw.Draw(img)
 
         # ---- Outer border -----------------------------------------------
         draw.rectangle(
@@ -226,25 +204,31 @@ class LabelService:
             outline=s.border, width=4,
         )
 
-        # ---- Header bar (library name, auto-fit to width) ---------------
-        draw.rectangle(
-            [border_pad, border_pad, w - border_pad, border_pad + header_h],
-            fill=s.header_bg,
-        )
-        title_font = self._fit_font(
-            draw, s.library_name, s.title_pt, w - 2 * (border_pad + 16),
-            bold=True,
-        )
-        self._draw_centered(
-            draw, s.library_name, font=title_font,
-            cx=w // 2, cy=border_pad + header_h // 2, fill=s.header_fg,
-        )
+        # ---- Top: bookplate logo (crisp), with a text-header fallback ----
+        logo = self._header_logo()
+        if logo is not None:
+            ly = border_pad + 14
+            img.paste(logo, ((w - logo.width) // 2, ly), logo)
+            y = ly + logo.height + 24
+        else:
+            header_h = int(h * 0.16)
+            draw.rectangle(
+                [border_pad, border_pad, w - border_pad, border_pad + header_h],
+                fill=s.header_bg,
+            )
+            title_font = self._fit_font(
+                draw, s.library_name, s.title_pt, w - 2 * (border_pad + 16),
+                bold=True,
+            )
+            self._draw_centered(
+                draw, s.library_name, font=title_font,
+                cx=w // 2, cy=border_pad + header_h // 2, fill=s.header_fg,
+            )
+            y = border_pad + header_h + 34
 
         caption_font = self._load_font(s.caption_pt, bold=True)
         serial_font = self._load_font(s.serial_pt, bold=True)
         field_font = self._load_font(s.field_pt, bold=True)
-
-        y = border_pad + header_h + 34
 
         def stacked(caption: str, value: str, value_font, color: str,
                     cap_gap: int, after: int) -> None:
