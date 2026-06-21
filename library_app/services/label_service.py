@@ -89,16 +89,16 @@ class LabelStyle:
     # book / author / category values.
     title_pt: int = 46
     caption_pt: int = 26
-    serial_pt: int = 82
-    field_pt: int = 44
+    serial_pt: int = 74
+    field_pt: int = 38
 
     # The library bookplate logo is printed crisply across the TOP of the label
     # (falls back to a text header band if no logo file is found). Sized as a
     # fraction of the label width, capped to a fraction of the height so the
     # text fields below always have room. Looked up at
     # library_app/assets/label_logo.png (or the LIBRARY_LABEL_LOGO env path).
-    logo_width_frac: float = 0.86
-    logo_max_height_frac: float = 0.46
+    logo_width_frac: float = 0.80
+    logo_max_height_frac: float = 0.44
 
 
 class LabelService:
@@ -230,22 +230,24 @@ class LabelService:
         serial_font = self._load_font(s.serial_pt, bold=True)
         field_font = self._load_font(s.field_pt, bold=True)
 
-        def stacked(caption: str, value: str, value_font, color: str,
-                    cap_gap: int, after: int) -> None:
+        def field(caption: str, value: str, value_font, color: str,
+                  max_lines: int, after: int) -> None:
+            """Draw a caption then its value, word-wrapped over up to
+            `max_lines` lines so full words show instead of being cut off."""
             nonlocal y
             draw.text((inner_left, y), caption, font=caption_font, fill=s.muted)
-            y += int(s.caption_pt) + cap_gap
-            draw.text((inner_left, y),
-                      self._truncate(draw, value, value_font, max_w),
-                      font=value_font, fill=color)
-            # advance by the value's rendered height + spacing
+            y += int(s.caption_pt) + 6
             bbox = draw.textbbox((0, 0), "Ag", font=value_font)
-            y += (bbox[3] - bbox[1]) + after
+            line_h = (bbox[3] - bbox[1]) + 5
+            for line in self._wrap(draw, value, value_font, max_w, max_lines):
+                draw.text((inner_left, y), line, font=value_font, fill=color)
+                y += line_h
+            y += after
 
-        stacked("SERIAL", serial_number or "—", serial_font, s.accent, 8, 34)
-        stacked("BOOK", title or "—", field_font, s.text, 6, 24)
-        stacked("AUTHOR", author or "—", field_font, s.text, 6, 24)
-        stacked("CATEGORY", category_name or "—", field_font, s.text, 6, 0)
+        field("SERIAL", serial_number or "—", serial_font, s.accent, 1, 22)
+        field("BOOK", title or "—", field_font, s.text, 2, 14)
+        field("AUTHOR", author or "—", field_font, s.text, 2, 14)
+        field("CATEGORY", category_name or "—", field_font, s.text, 2, 4)
 
         return img
 
@@ -336,6 +338,38 @@ class LabelService:
         while text and cls._text_w(draw, text + ell, font) > max_w:
             text = text[:-1]
         return (text + ell) if text else ell
+
+    @classmethod
+    def _wrap(cls, draw, text: str, font, max_w: int, max_lines: int) -> list[str]:
+        """Word-wrap `text` to lines fitting `max_w`, at most `max_lines`.
+
+        Words longer than a line are hard-trimmed; if the text needs more than
+        `max_lines`, the last line is ellipsised so nothing overflows."""
+        text = (text or "").strip()
+        if not text:
+            return ["—"]
+        words = text.split()
+        lines: list[str] = []
+        cur = ""
+        i = 0
+        while i < len(words):
+            trial = words[i] if not cur else f"{cur} {words[i]}"
+            if cls._text_w(draw, trial, font) <= max_w:
+                cur = trial
+                i += 1
+            elif not cur:                      # single word too wide for a line
+                cur = cls._truncate(draw, words[i], font, max_w)
+                i += 1
+            else:                              # wrap to next line
+                lines.append(cur)
+                cur = ""
+                if len(lines) == max_lines - 1:   # last allowed line → rest here
+                    rest = " ".join(words[i:])
+                    lines.append(cls._truncate(draw, rest, font, max_w))
+                    return lines
+        if cur:
+            lines.append(cur)
+        return lines
 
     @classmethod
     def _fit_font(cls, draw, text: str, base_size: int, max_w: int, *, bold: bool):
