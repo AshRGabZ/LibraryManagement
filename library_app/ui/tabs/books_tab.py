@@ -117,10 +117,11 @@ class BooksTab(ttk.Frame):
                    command=self.export_books).pack(side="right", padx=4)
         ttk.Button(toolbar, text="🏷️  Label", style="Purple.TButton",
                    command=self.view_label).pack(side="right", padx=4)
-        # Explicit width — Windows ttk under-measures the emoji and clipped the
-        # auto-sized text to "All Labe"; reserving the space fixes it.
+        # Keep the emoji but reserve a generous explicit width: Windows ttk
+        # under-measures the emoji, so the auto-sized button clipped the text to
+        # "All Labe". width=16 guarantees the full "🏷️  All Labels" shows.
         ttk.Button(toolbar, text="🏷️  All Labels", style="Purple.TButton",
-                   width=14,
+                   width=16,
                    command=self.download_all_labels).pack(side="right", padx=4)
 
         # ── Treeview ─────────────────────────────────────────────────────────

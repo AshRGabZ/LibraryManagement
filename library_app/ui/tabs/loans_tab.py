@@ -10,6 +10,7 @@ from ...domain import LoanWithDetails
 from ...exceptions import LibraryError
 from ...services import Services
 from ..dialogs import BorrowDialog, EditLoanDialog, RenewDialog
+from ..icons import emoji_image
 from ..theme import Palette, base_font, heading_font, small_font
 from ..widgets import DateEntry, TabHeader, TreeviewSorter, build_treeview
 
@@ -88,21 +89,48 @@ class LoansTab(ttk.Frame):
         ttk.Checkbutton(toolbar, text="Active only", variable=self.active_var,
                         command=self.refresh).pack(side="left", padx=12)
 
-        # Action buttons (right → left order so last-packed = right-most)
+        # Action buttons (right → left order so last-packed = right-most).
+        # Frequent loan actions stay as buttons; the rest are grouped under a
+        # single "More" dropdown so the toolbar isn't crowded.
         ttk.Button(toolbar, text="📖  Borrow", style="Success.TButton",
                    command=self.borrow_book).pack(side="right", padx=4)
         ttk.Button(toolbar, text="🔁  Renew", style="Purple.TButton",
                    command=self.renew_loan).pack(side="right", padx=4)
         ttk.Button(toolbar, text="↩  Return", style="Primary.TButton",
                    command=self.return_book).pack(side="right", padx=4)
-        ttk.Button(toolbar, text="✏  Edit", style="Neutral.TButton",
-                   command=self.edit_loan).pack(side="right", padx=4)
-        ttk.Button(toolbar, text="🗑  Delete", style="Danger.TButton",
-                   command=self.delete_loan).pack(side="right", padx=4)
-        ttk.Button(toolbar, text="💬  WhatsApp", style="Whatsapp.TButton",
-                   command=self.notify_whatsapp).pack(side="right", padx=4)
-        ttk.Button(toolbar, text="↻  Refresh", style="Neutral.TButton",
-                   command=self.refresh).pack(side="right", padx=4)
+
+        more_btn = ttk.Button(toolbar, text="⋯  More  ▾", style="Neutral.TButton")
+        more_btn.pack(side="right", padx=4)
+        self._more_menu = tk.Menu(
+            more_btn, tearoff=0, bd=0, font=base_font(),
+            bg=Palette.SURFACE, fg=Palette.TEXT,
+            activebackground=Palette.PRIMARY, activeforeground=Palette.PRIMARY_FG,
+        )
+        # Fixed-size emoji images placed via compound="left" keep every text
+        # label aligned (inline emoji glyphs have ragged widths). Falls back to
+        # text-only where no colour-emoji font is available.
+        self._menu_icons: dict[str, object] = {
+            name: emoji_image(char, 18)
+            for name, char in (("edit", "✏️"), ("delete", "🗑️"),
+                               ("whatsapp", "💬"), ("refresh", "🔄"))
+        }
+
+        def _add(key: str, label: str, command) -> None:
+            icon = self._menu_icons.get(key)
+            if icon is not None:
+                self._more_menu.add_command(label=label, image=icon,
+                                            compound="left", command=command)
+            else:
+                self._more_menu.add_command(label=label, command=command)
+
+        _add("edit", "  Edit loan", self.edit_loan)
+        _add("delete", "  Delete loan", self.delete_loan)
+        self._more_menu.add_separator()
+        _add("whatsapp", "  WhatsApp reminder", self.notify_whatsapp)
+        self._more_menu.add_separator()
+        _add("refresh", "  Refresh", self.refresh)
+        more_btn.configure(
+            command=lambda b=more_btn: self._post_menu(self._more_menu, b))
 
         # ── Row 2: date-range filter + result count ───────────────────────────
         range_bar = tk.Frame(self, bg=Palette.BG, padx=14)
@@ -291,6 +319,15 @@ class LoansTab(ttk.Frame):
             )
 
     # ─────────────────────────────────────────── selection ──
+
+    def _post_menu(self, menu: tk.Menu, anchor: tk.Widget) -> None:
+        """Pop a dropdown menu flush under its anchor button."""
+        x = anchor.winfo_rootx()
+        y = anchor.winfo_rooty() + anchor.winfo_height()
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
 
     def _selected_loan_id(self) -> int | None:
         sel = self.tree.selection()

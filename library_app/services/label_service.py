@@ -93,12 +93,15 @@ class LabelStyle:
     field_pt: int = 38
 
     # The library bookplate logo is printed crisply across the TOP of the label
-    # (falls back to a text header band if no logo file is found). Sized as a
-    # fraction of the label width, capped to a fraction of the height so the
-    # text fields below always have room. Looked up at
-    # library_app/assets/label_logo.png (or the LIBRARY_LABEL_LOGO env path).
-    logo_width_frac: float = 0.80
-    logo_max_height_frac: float = 0.44
+    # (falls back to a text header band if no logo file is found). It is sized
+    # to the SAME content width as the text below it so their left/right edges
+    # line up; `logo_max_height_frac` only caps it for unusually tall logos.
+    # Looked up at library_app/assets/label_logo.png (or LIBRARY_LABEL_LOGO).
+    logo_max_height_frac: float = 0.55
+
+    # Smallest the field text may auto-shrink to (so very long titles still fit
+    # fully without being cut off).
+    field_min_pt: int = 24
 
 
 class LabelService:
@@ -132,8 +135,9 @@ class LabelService:
                 return c
         return None
 
-    def _header_logo(self):
-        """Return the crisp, pre-sized header logo (cached), or None."""
+    def _header_logo(self, target_w: int):
+        """Return the header logo resized to `target_w` (the text content
+        width, so edges align), capped by `logo_max_height_frac`. Cached."""
         if self._logo_cache is not None:
             return self._logo_cache or None
         path = self._logo_path()
@@ -148,8 +152,8 @@ class LabelService:
             self._logo_cache = False
             return None
 
-        w, h = self._pixel_dims()
-        tw = int(w * self._style.logo_width_frac)
+        _, h = self._pixel_dims()
+        tw = target_w
         th = int(logo.height * (tw / logo.width))
         max_h = int(h * self._style.logo_max_height_frac)
         if th > max_h:
@@ -195,8 +199,11 @@ class LabelService:
         draw = ImageDraw.Draw(img)
 
         border_pad = 7
-        inner_left = border_pad + 30
-        max_w = w - inner_left - (border_pad + 24)   # usable text width
+        # Shared content margin: the logo and the text fields use the SAME
+        # left/right edges so they line up.
+        margin = border_pad + 30
+        inner_left = margin
+        max_w = w - 2 * margin
 
         # ---- Outer border -----------------------------------------------
         draw.rectangle(
@@ -205,10 +212,11 @@ class LabelService:
         )
 
         # ---- Top: bookplate logo (crisp), with a text-header fallback ----
-        logo = self._header_logo()
+        logo = self._header_logo(max_w)
         if logo is not None:
             ly = border_pad + 14
-            img.paste(logo, ((w - logo.width) // 2, ly), logo)
+            lx = margin + (max_w - logo.width) // 2   # aligned to the text column
+            img.paste(logo, (lx, ly), logo)
             y = ly + logo.height + 24
         else:
             header_h = int(h * 0.16)
@@ -228,26 +236,50 @@ class LabelService:
 
         caption_font = self._load_font(s.caption_pt, bold=True)
         serial_font = self._load_font(s.serial_pt, bold=True)
-        field_font = self._load_font(s.field_pt, bold=True)
+        cap_h = self._text_h(draw, caption_font)
+        content_bottom = h - border_pad - 12
 
-        def field(caption: str, value: str, value_font, color: str,
-                  max_lines: int, after: int) -> None:
-            """Draw a caption then its value, word-wrapped over up to
-            `max_lines` lines so full words show instead of being cut off."""
-            nonlocal y
+        # (caption, value, is_serial, color). Serial stays a fixed big size;
+        # the BOOK/AUTHOR/CATEGORY values wrap over as many lines as needed.
+        specs = [
+            ("SERIAL", serial_number or "—", True, s.accent),
+            ("BOOK", title or "—", False, s.text),
+            ("AUTHOR", author or "—", False, s.text),
+            ("CATEGORY", category_name or "—", False, s.text),
+        ]
+
+        def _plan(field_pt: int):
+            """Wrap every field at `field_pt`; return (rows, total_height)."""
+            field_font = self._load_font(field_pt, bold=True)
+            field_lh = self._text_h(draw, field_font) + 5
+            serial_lh = self._text_h(draw, serial_font) + 5
+            rows, total = [], 0
+            for caption, value, is_serial, color in specs:
+                vf = serial_font if is_serial else field_font
+                lh = serial_lh if is_serial else field_lh
+                lines = self._wrap(draw, value, vf, max_w,
+                                   max_lines=2 if is_serial else 8)
+                after = 20 if is_serial else 12
+                rows.append((caption, vf, lines, color, lh, after))
+                total += cap_h + 6 + len(lines) * lh + after
+            return rows, total
+
+        # Auto-shrink the field text just enough that the FULL content fits the
+        # space below the logo — so long titles wrap instead of being cut off.
+        avail = content_bottom - y
+        field_pt = s.field_pt
+        rows, total = _plan(field_pt)
+        while total > avail and field_pt > s.field_min_pt:
+            field_pt -= 2
+            rows, total = _plan(field_pt)
+
+        for caption, vf, lines, color, lh, after in rows:
             draw.text((inner_left, y), caption, font=caption_font, fill=s.muted)
-            y += int(s.caption_pt) + 6
-            bbox = draw.textbbox((0, 0), "Ag", font=value_font)
-            line_h = (bbox[3] - bbox[1]) + 5
-            for line in self._wrap(draw, value, value_font, max_w, max_lines):
-                draw.text((inner_left, y), line, font=value_font, fill=color)
-                y += line_h
+            y += cap_h + 6
+            for line in lines:
+                draw.text((inner_left, y), line, font=vf, fill=color)
+                y += lh
             y += after
-
-        field("SERIAL", serial_number or "—", serial_font, s.accent, 1, 22)
-        field("BOOK", title or "—", field_font, s.text, 2, 14)
-        field("AUTHOR", author or "—", field_font, s.text, 2, 14)
-        field("CATEGORY", category_name or "—", field_font, s.text, 2, 4)
 
         return img
 
@@ -328,6 +360,11 @@ class LabelService:
     def _text_w(draw, text: str, font) -> int:
         bbox = draw.textbbox((0, 0), text, font=font)
         return bbox[2] - bbox[0]
+
+    @staticmethod
+    def _text_h(draw, font) -> int:
+        bbox = draw.textbbox((0, 0), "Ag", font=font)
+        return bbox[3] - bbox[1]
 
     @classmethod
     def _truncate(cls, draw, text: str, font, max_w: int) -> str:
