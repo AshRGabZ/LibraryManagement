@@ -142,10 +142,12 @@ class LabelPreviewDialog(tk.Toplevel):
         _bind_scroll(body)
         self.after(100, lambda: _bind_scroll(body))
 
-        # Preview — scale to half DPI for screen display.
+        # Preview — scale down for screen display, preserving the rendered
+        # image's real aspect (the full-frame label may not be exactly W×H in).
         full = self._image
-        target_w = int(self._services.label.style.width_in * self._PREVIEW_DPI)
-        target_h = int(self._services.label.style.height_in * self._PREVIEW_DPI)
+        scale = self._PREVIEW_DPI / self._services.label.style.dpi
+        target_w = max(1, round(full.size[0] * scale))
+        target_h = max(1, round(full.size[1] * scale))
         from PIL import Image, ImageTk
         preview = full.resize((target_w, target_h), Image.LANCZOS)
         # Hold a reference on `self` so Tk's GC doesn't blank the image.
@@ -159,11 +161,12 @@ class LabelPreviewDialog(tk.Toplevel):
         tk.Label(preview_wrap, image=self._photo, bg=Palette.SURFACE
                  ).pack(padx=4, pady=4)
 
-        # Metadata caption
+        # Metadata caption — derive the true printed size from the rendered
+        # pixels (the full-frame label's height follows the artwork's aspect).
         s = self._services.label.style
         meta = (
-            f"📐  {s.width_in}\" × {s.height_in}\" at {s.dpi} dpi  "
-            f"({full.size[0]} × {full.size[1]} px)"
+            f"📐  {full.size[0] / s.dpi:.2g}\" × {full.size[1] / s.dpi:.2g}\" "
+            f"at {s.dpi} dpi  ({full.size[0]} × {full.size[1]} px)"
         )
         tk.Label(body, text=meta, bg=Palette.SURFACE,
                  fg=Palette.MUTED, font=base_font()

@@ -7,6 +7,12 @@ Why Pillow? It's the de-facto standard for image generation in Python, ships
 PNG/JPG/PDF/TIFF writers in one library, and gives us crisp text at any size.
 The service stays UI-agnostic — `LabelPreviewDialog` consumes the Image
 returned here without coupling to Tk.
+
+Design: the bookplate art (assets/label_logo.png) is a full-frame illustration
+— a "From the Library of" header at the top, a books/quill/banner cluster at
+the bottom, and a large white band in the middle. We scale that art to fill the
+label and overlay the details (SERIAL, BOOK, AUTHOR, CATEGORY) centered in the
+white band. If no logo is found we fall back to a plain framed text label.
 """
 from __future__ import annotations
 
@@ -67,9 +73,9 @@ class LabelStyle:
 
     library_name: str = LIBRARY_NAME
 
-    # Final pixel dimensions = inches × DPI. A roomy **portrait 2"×3"** tag at
-    # 300 dpi (600×900 px) — taller than a spine label so the five stacked
-    # fields (serial, book, author, category) print at a comfortable size.
+    # Final pixel dimensions = inches × DPI. A roomy **portrait 2"** wide tag at
+    # 300 dpi; with a full-frame logo the height follows the artwork's aspect so
+    # the frame never distorts (otherwise it's `height_in` tall).
     dpi: int = 300
     width_in: float = 2.0
     height_in: float = 3.0
@@ -78,30 +84,30 @@ class LabelStyle:
     bg: str = "white"
     header_bg: str = "#1f2937"          # matches the app's HEADER_BG
     header_fg: str = "#ffffff"
-    accent: str = "#2563eb"             # matches PRIMARY
+    accent: str = "#1e3a8a"             # deep navy — matches the banner ink
     text: str = "#111827"
     muted: str = "#6b7280"
     border: str = "#1f2937"
 
-    # Font sizes (px at the target DPI). Generous because the tag is large.
-    # `title_pt` is auto-shrunk to fit the header width; `caption_pt` is the
-    # small field headings; `serial_pt` is the big serial; `field_pt` is the
-    # book / author / category values.
+    # Font sizes (px at the target DPI). `caption_pt` is the small field
+    # headings; `serial_pt` is the big serial; `field_pt` is the book / author /
+    # category values; `title_pt` is only used by the no-logo text fallback.
     title_pt: int = 46
-    caption_pt: int = 26
-    serial_pt: int = 74
-    field_pt: int = 38
+    caption_pt: int = 24
+    serial_pt: int = 70
+    field_pt: int = 36
 
-    # The library bookplate logo is printed crisply across the TOP of the label
-    # (falls back to a text header band if no logo file is found). It is sized
-    # to the SAME content width as the text below it so their left/right edges
-    # line up; `logo_max_height_frac` only caps it for unusually tall logos.
-    # Looked up at library_app/assets/label_logo.png (or LIBRARY_LABEL_LOGO).
-    logo_max_height_frac: float = 0.55
+    # The bookplate logo is a full-frame background. The details are overlaid,
+    # centered, in the white band between the top header art and the bottom
+    # books/banner — these fractions of the label HEIGHT/WIDTH bound that band.
+    # Tuned to the shipped assets/label_logo.png (content runs ~14%–62%).
+    frame_top_frac: float = 0.17      # just below the "From the Library of" sprig
+    frame_bottom_frac: float = 0.59   # just above the book stack / banner
+    frame_side_frac: float = 0.12     # left/right inset for the centered text
 
     # Smallest the field text may auto-shrink to (so very long titles still fit
     # fully without being cut off).
-    field_min_pt: int = 24
+    field_min_pt: int = 22
 
 
 class LabelService:
@@ -109,9 +115,9 @@ class LabelService:
 
     def __init__(self, style: LabelStyle | None = None) -> None:
         self._style = style or LabelStyle()
-        self._logo_cache = None   # lazily-prepared header logo, or False if none
+        self._full_logo_cache = None   # native-size frame art, or False if none
 
-    # --------------------------------------------------------- logo / wm #
+    # --------------------------------------------------------- logo / frame #
 
     def _logo_path(self) -> "Path | None":
         """Locate the bookplate logo: env override → bundled package asset
@@ -135,42 +141,45 @@ class LabelService:
                 return c
         return None
 
-    def _header_logo(self, target_w: int):
-        """Return the header logo resized to `target_w` (the text content
-        width, so edges align), capped by `logo_max_height_frac`. Cached."""
-        if self._logo_cache is not None:
-            return self._logo_cache or None
+    def _full_logo(self):
+        """Return the full-frame bookplate art as a native-size RGBA image
+        (cached), or None if no logo file is available."""
+        if self._full_logo_cache is not None:
+            return self._full_logo_cache or None
         path = self._logo_path()
         if path is None:
-            self._logo_cache = False
+            self._full_logo_cache = False
             return None
         try:
             from PIL import Image
             logo = Image.open(path).convert("RGBA")
         except Exception:  # pragma: no cover - bad/corrupt image
             _log.warning("Could not load label logo: %s", path)
-            self._logo_cache = False
+            self._full_logo_cache = False
             return None
+        self._full_logo_cache = logo
+        return logo
 
-        _, h = self._pixel_dims()
-        tw = target_w
-        th = int(logo.height * (tw / logo.width))
-        max_h = int(h * self._style.logo_max_height_frac)
-        if th > max_h:
-            th = max_h
-            tw = int(logo.width * (th / logo.height))
-        self._logo_cache = logo.resize((tw, th), Image.LANCZOS)
-        return self._logo_cache
-
-    # --------------------------------------------------------- dims helper #
+    # --------------------------------------------------------- dims helpers #
 
     @property
     def style(self) -> LabelStyle:
         return self._style
 
     def _pixel_dims(self) -> tuple[int, int]:
+        """Fallback canvas size (no logo) — straight width_in × height_in."""
         s = self._style
         return int(s.width_in * s.dpi), int(s.height_in * s.dpi)
+
+    def _label_dims(self) -> tuple[int, int]:
+        """Working canvas size. With a full-frame logo the height follows the
+        artwork's aspect (no distortion); otherwise width_in × height_in."""
+        s = self._style
+        w = int(s.width_in * s.dpi)
+        logo = self._full_logo()
+        if logo is not None:
+            return w, round(w * logo.height / logo.width)
+        return w, int(s.height_in * s.dpi)
 
     # ---------------------------------------------------------- rendering  #
 
@@ -181,8 +190,8 @@ class LabelService:
         author: str | None = None,
         category_name: str | None = None,
     ) -> "Image":
-        """Build the label as a Pillow RGB Image — header (library name) plus
-        SERIAL, BOOK, AUTHOR, CATEGORY.
+        """Build the label as a Pillow RGB Image: the bookplate frame with the
+        SERIAL, BOOK, AUTHOR and CATEGORY details centered in its white band.
 
         Raises ImportError with a friendly message if Pillow isn't installed.
         """
@@ -194,52 +203,29 @@ class LabelService:
             ) from e
 
         s = self._style
-        w, h = self._pixel_dims()
+        logo = self._full_logo()
+        if logo is None:
+            return self._render_text_fallback(
+                serial_number, title, author, category_name)
+
+        w, h = self._label_dims()
         img = Image.new("RGB", (w, h), s.bg)
+        frame = logo.resize((w, h), Image.LANCZOS)
+        img.paste(frame, (0, 0), frame)
         draw = ImageDraw.Draw(img)
 
-        border_pad = 7
-        # Shared content margin: the logo and the text fields use the SAME
-        # left/right edges so they line up.
-        margin = border_pad + 30
-        inner_left = margin
-        max_w = w - 2 * margin
-
-        # ---- Outer border -----------------------------------------------
-        draw.rectangle(
-            [border_pad, border_pad, w - border_pad, h - border_pad],
-            outline=s.border, width=4,
-        )
-
-        # ---- Top: bookplate logo (crisp), with a text-header fallback ----
-        logo = self._header_logo(max_w)
-        if logo is not None:
-            ly = border_pad + 14
-            lx = margin + (max_w - logo.width) // 2   # aligned to the text column
-            img.paste(logo, (lx, ly), logo)
-            y = ly + logo.height + 24
-        else:
-            header_h = int(h * 0.16)
-            draw.rectangle(
-                [border_pad, border_pad, w - border_pad, border_pad + header_h],
-                fill=s.header_bg,
-            )
-            title_font = self._fit_font(
-                draw, s.library_name, s.title_pt, w - 2 * (border_pad + 16),
-                bold=True,
-            )
-            self._draw_centered(
-                draw, s.library_name, font=title_font,
-                cx=w // 2, cy=border_pad + header_h // 2, fill=s.header_fg,
-            )
-            y = border_pad + header_h + 34
+        cx = w // 2
+        band_top = int(h * s.frame_top_frac)
+        band_bottom = int(h * s.frame_bottom_frac)
+        band_h = band_bottom - band_top
+        max_w = int(w * (1 - 2 * s.frame_side_frac))
+        group_gap = int(h * 0.022)
 
         caption_font = self._load_font(s.caption_pt, bold=True)
         serial_font = self._load_font(s.serial_pt, bold=True)
         cap_h = self._text_h(draw, caption_font)
-        content_bottom = h - border_pad - 12
 
-        # (caption, value, is_serial, color). Serial stays a fixed big size;
+        # (caption, value, is_serial, color). Serial is the big call-number;
         # the BOOK/AUTHOR/CATEGORY values wrap over as many lines as needed.
         specs = [
             ("SERIAL", serial_number or "—", True, s.accent),
@@ -251,6 +237,93 @@ class LabelService:
         def _plan(field_pt: int):
             """Wrap every field at `field_pt`; return (rows, total_height)."""
             field_font = self._load_font(field_pt, bold=True)
+            field_lh = self._text_h(draw, field_font) + 6
+            serial_lh = self._text_h(draw, serial_font) + 6
+            rows, total = [], 0
+            for caption, value, is_serial, color in specs:
+                vf = serial_font if is_serial else field_font
+                lh = serial_lh if is_serial else field_lh
+                lines = self._wrap(draw, value, vf, max_w,
+                                   max_lines=2 if is_serial else 6)
+                rows.append((caption, vf, lines, color, lh))
+                total += cap_h + 6 + len(lines) * lh + group_gap
+            return rows, total - group_gap   # no trailing gap
+
+        # Auto-shrink the field text just enough that the FULL block fits the
+        # white band — long titles wrap and shrink instead of being cut off.
+        field_pt = s.field_pt
+        rows, total = _plan(field_pt)
+        while total > band_h and field_pt > s.field_min_pt:
+            field_pt -= 2
+            rows, total = _plan(field_pt)
+
+        # Vertically center the block within the band; everything is centered
+        # on the label's mid-line.
+        y = band_top + max(0, (band_h - total) // 2)
+        for caption, vf, lines, color, lh in rows:
+            self._draw_center_x(draw, caption, caption_font, cx, y, s.muted)
+            y += cap_h + 6
+            for line in lines:
+                self._draw_center_x(draw, line, vf, cx, y, color)
+                y += lh
+            y += group_gap
+
+        return img
+
+    def _render_text_fallback(
+        self,
+        serial_number: str,
+        title: str | None,
+        author: str | None,
+        category_name: str | None,
+    ) -> "Image":
+        """Plain framed label used when no bookplate logo file is available."""
+        from PIL import Image, ImageDraw
+
+        s = self._style
+        w, h = self._pixel_dims()
+        img = Image.new("RGB", (w, h), s.bg)
+        draw = ImageDraw.Draw(img)
+
+        border_pad = 7
+        margin = border_pad + 30
+        max_w = w - 2 * margin
+
+        draw.rectangle(
+            [border_pad, border_pad, w - border_pad, h - border_pad],
+            outline=s.border, width=4,
+        )
+        header_h = int(h * 0.16)
+        draw.rectangle(
+            [border_pad, border_pad, w - border_pad, border_pad + header_h],
+            fill=s.header_bg,
+        )
+        title_font = self._fit_font(
+            draw, s.library_name, s.title_pt, w - 2 * (border_pad + 16),
+            bold=True,
+        )
+        self._draw_centered(
+            draw, s.library_name, font=title_font,
+            cx=w // 2, cy=border_pad + header_h // 2, fill=s.header_fg,
+        )
+        y = border_pad + header_h + 34
+
+        cx = w // 2
+        caption_font = self._load_font(s.caption_pt, bold=True)
+        serial_font = self._load_font(s.serial_pt, bold=True)
+        cap_h = self._text_h(draw, caption_font)
+        content_bottom = h - border_pad - 12
+        group_gap = 16
+
+        specs = [
+            ("SERIAL", serial_number or "—", True, s.accent),
+            ("BOOK", title or "—", False, s.text),
+            ("AUTHOR", author or "—", False, s.text),
+            ("CATEGORY", category_name or "—", False, s.text),
+        ]
+
+        def _plan(field_pt: int):
+            field_font = self._load_font(field_pt, bold=True)
             field_lh = self._text_h(draw, field_font) + 5
             serial_lh = self._text_h(draw, serial_font) + 5
             rows, total = [], 0
@@ -259,27 +332,24 @@ class LabelService:
                 lh = serial_lh if is_serial else field_lh
                 lines = self._wrap(draw, value, vf, max_w,
                                    max_lines=2 if is_serial else 8)
-                after = 20 if is_serial else 12
-                rows.append((caption, vf, lines, color, lh, after))
-                total += cap_h + 6 + len(lines) * lh + after
+                rows.append((caption, vf, lines, color, lh))
+                total += cap_h + 6 + len(lines) * lh + group_gap
             return rows, total
 
-        # Auto-shrink the field text just enough that the FULL content fits the
-        # space below the logo — so long titles wrap instead of being cut off.
-        avail = content_bottom - y
         field_pt = s.field_pt
         rows, total = _plan(field_pt)
+        avail = content_bottom - y
         while total > avail and field_pt > s.field_min_pt:
             field_pt -= 2
             rows, total = _plan(field_pt)
 
-        for caption, vf, lines, color, lh, after in rows:
-            draw.text((inner_left, y), caption, font=caption_font, fill=s.muted)
+        for caption, vf, lines, color, lh in rows:
+            self._draw_center_x(draw, caption, caption_font, cx, y, s.muted)
             y += cap_h + 6
             for line in lines:
-                draw.text((inner_left, y), line, font=vf, fill=color)
+                self._draw_center_x(draw, line, vf, cx, y, color)
                 y += lh
-            y += after
+            y += group_gap
 
         return img
 
@@ -317,7 +387,7 @@ class LabelService:
             raise ValueError("No labels to generate.")
 
         path = Path(path)
-        lw, lh = self._pixel_dims()
+        lw, lh = self._label_dims()
         page_w = int(8.5 * self._style.dpi)   # US Letter @ dpi
         page_h = int(11.0 * self._style.dpi)
         cols = max(1, (page_w - 120) // (lw + 60))
@@ -355,6 +425,13 @@ class LabelService:
         tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
         draw.text((cx - tw // 2 - bbox[0], cy - th // 2 - bbox[1]),
                   text, font=font, fill=fill)
+
+    @classmethod
+    def _draw_center_x(cls, draw, text: str, font, cx: int, y: int, fill: str) -> None:
+        """Draw `text` horizontally centered on `cx`, with its top at `y`."""
+        bbox = draw.textbbox((0, 0), text, font=font)
+        tw = bbox[2] - bbox[0]
+        draw.text((cx - tw // 2 - bbox[0], y), text, font=font, fill=fill)
 
     @staticmethod
     def _text_w(draw, text: str, font) -> int:
