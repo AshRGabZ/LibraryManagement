@@ -77,6 +77,6 @@ WHATSAPP_TEMPLATE: str = (
     "Hi {name}, this is a reminder from GHCC Library.\n\n"
     "You currently have these book(s) borrowed:\n"
     "{book_list}\n\n"
-    "Please return them at your earliest convenience.\n\n"
+    "Please return/renew them at your earliest convenience.\n\n"
     "Thanks!"
 )

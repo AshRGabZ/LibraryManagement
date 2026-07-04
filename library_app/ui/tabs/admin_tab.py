@@ -93,6 +93,23 @@ class AdminTab(ttk.Frame):
         ttk.Entry(sr, textvariable=self.book_search_var, width=32,
                   font=base_font()).pack(side="left")
 
+        # Action buttons — top-right of the section, alongside the search
+        # bar, so they're always visible without scrolling past the list.
+        # Packed with side="right"; since that side fills right-to-left, the
+        # buttons are added in reverse reading order to display correctly.
+        btn_row = tk.Frame(sr, bg=Palette.BG)
+        btn_row.pack(side="right")
+        ttk.Button(btn_row, text="🗑 Delete", style="Danger.TButton",
+                   command=self._delete_book).pack(side="right")
+        ttk.Button(btn_row, text="📦 Copies…", style="Neutral.TButton",
+                   command=self._manage_copies).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_row, text="✏ Edit", style="Primary.TButton",
+                   command=self._edit_book).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_row, text="📥 Import", style="Primary.TButton",
+                   command=self._import_books).pack(side="right", padx=(6, 0))
+        ttk.Button(btn_row, text="➕ Add Book", style="Success.TButton",
+                   command=self._add_book).pack(side="right", padx=(6, 0))
+
         # "extended" selection so several books can be selected (Ctrl/Shift-
         # click) and deleted in one go.
         container, self.books_tree = build_treeview(bf, [
@@ -103,22 +120,6 @@ class AdminTab(ttk.Frame):
             ("language", "Language",  95, "w"),
             ("copies",   "Copies",    80, "center"),
         ], height=12, selectmode="extended")
-
-        # Action row pinned to the BOTTOM — packed before the tree so it is
-        # always reserved and never clipped when the window is short. The
-        # tree then absorbs the shrink and scrolls within its own scrollbar.
-        btn_row = tk.Frame(bf, bg=Palette.BG)
-        btn_row.pack(side="bottom", fill="x", pady=(8, 0))
-        ttk.Button(btn_row, text="➕ Add Book", style="Success.TButton",
-                   command=self._add_book).pack(side="left", padx=(0, 4))
-        ttk.Button(btn_row, text="📥 Import", style="Primary.TButton",
-                   command=self._import_books).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="✏ Edit", style="Primary.TButton",
-                   command=self._edit_book).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="📦 Copies…", style="Neutral.TButton",
-                   command=self._manage_copies).pack(side="left", padx=4)
-        ttk.Button(btn_row, text="🗑 Delete", style="Danger.TButton",
-                   command=self._delete_book).pack(side="left", padx=4)
 
         container.pack(fill="both", expand=True)
         self.books_tree.bind("<Double-1>", lambda e: self._edit_book())
@@ -150,14 +151,10 @@ class AdminTab(ttk.Frame):
         ttk.Entry(cat_search, textvariable=self.cat_search_var,
                   font=base_font()).pack(side="left", fill="x", expand=True)
 
-        container, self.cat_tree = build_treeview(cf, [
-            ("id", "ID", 40, "center"),
-            ("name", "Name", 150, "w"),
-        ], height=8)
-
-        # Input row reserved at the bottom (packed before the tree).
+        # Input row for adding/editing/deleting — placed at the TOP, right
+        # below the search bar, so it's always visible without scrolling.
         ci = tk.Frame(cf, bg=Palette.BG)
-        ci.pack(side="bottom", fill="x", pady=(8, 0))
+        ci.pack(fill="x", pady=(0, 6))
         self.cat_entry = ttk.Entry(ci, font=base_font())
         self.cat_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(ci, text="➕ Add", style="Success.TButton",
@@ -166,6 +163,11 @@ class AdminTab(ttk.Frame):
                    command=self._edit_category).pack(side="left", padx=(0, 4))
         ttk.Button(ci, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_category).pack(side="left")
+
+        container, self.cat_tree = build_treeview(cf, [
+            ("id", "ID", 40, "center"),
+            ("name", "Name", 150, "w"),
+        ], height=8)
 
         container.pack(fill="both", expand=True)
 
@@ -186,14 +188,10 @@ class AdminTab(ttk.Frame):
         ttk.Entry(lang_search, textvariable=self.lang_search_var,
                   font=base_font()).pack(side="left", fill="x", expand=True)
 
-        container, self.lang_tree = build_treeview(lf, [
-            ("id", "ID", 40, "center"),
-            ("name", "Name", 150, "w"),
-        ], height=8)
-
-        # Input row reserved at the bottom (packed before the tree).
+        # Input row for adding/editing/deleting — placed at the TOP, right
+        # below the search bar, so it's always visible without scrolling.
         li = tk.Frame(lf, bg=Palette.BG)
-        li.pack(side="bottom", fill="x", pady=(8, 0))
+        li.pack(fill="x", pady=(0, 6))
         self.lang_entry = ttk.Entry(li, font=base_font())
         self.lang_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(li, text="➕ Add", style="Success.TButton",
@@ -202,6 +200,11 @@ class AdminTab(ttk.Frame):
                    command=self._edit_language).pack(side="left", padx=(0, 4))
         ttk.Button(li, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_language).pack(side="left")
+
+        container, self.lang_tree = build_treeview(lf, [
+            ("id", "ID", 40, "center"),
+            ("name", "Name", 150, "w"),
+        ], height=8)
 
         container.pack(fill="both", expand=True)
 
@@ -222,14 +225,10 @@ class AdminTab(ttk.Frame):
         ttk.Entry(author_search, textvariable=self.author_search_var,
                   font=base_font()).pack(side="left", fill="x", expand=True)
 
-        container, self.author_tree = build_treeview(af, [
-            ("id", "ID", 40, "center"),
-            ("name", "Name", 150, "w"),
-        ], height=8)
-
-        # Input row reserved at the bottom (packed before the tree).
+        # Input row for adding/editing/deleting — placed at the TOP, right
+        # below the search bar, so it's always visible without scrolling.
         ai = tk.Frame(af, bg=Palette.BG)
-        ai.pack(side="bottom", fill="x", pady=(8, 0))
+        ai.pack(fill="x", pady=(0, 6))
         self.author_entry = ttk.Entry(ai, font=base_font())
         self.author_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
         ttk.Button(ai, text="➕ Add", style="Success.TButton",
@@ -238,6 +237,11 @@ class AdminTab(ttk.Frame):
                    command=self._edit_author).pack(side="left", padx=(0, 4))
         ttk.Button(ai, text="🗑 Delete", style="Danger.TButton",
                    command=self._delete_author).pack(side="left")
+
+        container, self.author_tree = build_treeview(af, [
+            ("id", "ID", 40, "center"),
+            ("name", "Name", 150, "w"),
+        ], height=8)
 
         container.pack(fill="both", expand=True)
 
@@ -270,19 +274,10 @@ class AdminTab(ttk.Frame):
             command=self._on_member_view_changed,
         ).pack(side="left", padx=(14, 0))
 
-        # "extended" selection so several members can be selected (Ctrl/Shift-
-        # click) and archived/restored in one go.
-        container, self.members_tree = build_treeview(mf, [
-            ("id", "ID", 60, "center"),
-            ("name", "Name", 200, "w"),
-            ("email", "Email", 220, "w"),
-            ("phone", "Phone", 130, "center"),
-            ("joined", "Joined", 110, "center"),
-        ], height=8, selectmode="extended")
-
-        # Action row reserved at the bottom (packed before the tree).
-        br = tk.Frame(mf, bg=Palette.BG)
-        br.pack(side="bottom", fill="x", pady=(8, 0))
+        # Action buttons — top-right of the section, alongside the search
+        # bar, so they're always visible without scrolling past the list.
+        br = tk.Frame(sr, bg=Palette.BG)
+        br.pack(side="right")
         ttk.Button(br, text="➕ Add Member", style="Success.TButton",
                    command=self._add_member).pack(side="left", padx=(0, 4))
         ttk.Button(br, text="📥 Import", style="Primary.TButton",
@@ -298,6 +293,16 @@ class AdminTab(ttk.Frame):
             br, text="♻ Restore", style="Success.TButton",
             command=self._restore_members)
         self._update_member_action_buttons()
+
+        # "extended" selection so several members can be selected (Ctrl/Shift-
+        # click) and archived/restored in one go.
+        container, self.members_tree = build_treeview(mf, [
+            ("id", "ID", 60, "center"),
+            ("name", "Name", 200, "w"),
+            ("email", "Email", 220, "w"),
+            ("phone", "Phone", 130, "center"),
+            ("joined", "Joined", 110, "center"),
+        ], height=8, selectmode="extended")
 
         container.pack(fill="both", expand=True)
         self.members_tree.bind("<Double-1>", lambda e: self._edit_member())
